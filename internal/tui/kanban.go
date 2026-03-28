@@ -45,7 +45,7 @@ type KanbanModel struct {
 	height int
 
 	tLists []trello.List
-	cards  map[string][]trello.Card // listID -> cards
+	cards  map[string][]trello.Card
 
 	models         []list.Model
 	focusedListIdx int
@@ -59,6 +59,9 @@ type KanbanModel struct {
 	ta          textarea.Model
 	formIdx     int
 	formDestIdx int
+	formPosIdx  int
+	tiDue       textinput.Model
+	tiURL       textinput.Model
 }
 
 type kanbanItem struct {
@@ -83,6 +86,13 @@ func NewKanbanModel(client *trello.Client, boardID string, w, h int) KanbanModel
 	ta.Placeholder = "Card Description (optional)"
 	ta.SetHeight(5)
 
+	tiDue := textinput.New()
+	tiDue.Placeholder = "YYYY-MM-DD (optional)"
+	tiDue.CharLimit = 10
+
+	tiURL := textinput.New()
+	tiURL.Placeholder = "https://... (optional)"
+
 	return KanbanModel{
 		client:  client,
 		boardID: boardID,
@@ -93,6 +103,8 @@ func NewKanbanModel(client *trello.Client, boardID string, w, h int) KanbanModel
 		help:    help.New(),
 		ti:      ti,
 		ta:      ta,
+		tiDue:   tiDue,
+		tiURL:   tiURL,
 	}
 }
 
@@ -119,9 +131,9 @@ func (m KanbanModel) loadKanban() tea.Msg {
 	return kanbanLoadedMsg{lists: lists, cards: cardsMap}
 }
 
-func (m KanbanModel) createCard(listID, title, desc string) tea.Cmd {
+func (m KanbanModel) createCard(opts trello.CreateCardOptions) tea.Cmd {
 	return func() tea.Msg {
-		_, err := m.client.CreateCard(listID, title, desc)
+		_, err := m.client.CreateCard(opts)
 		if err != nil {
 			return errMsg{err}
 		}
@@ -149,14 +161,14 @@ func (m KanbanModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.height = msg.Height
 		m.help.Width = msg.Width
 
-		m.ti.Width = (m.width / 2) - 4
-		if m.ti.Width < 20 {
-			m.ti.Width = 20
+		inputWidth := (m.width / 2) - 4
+		if inputWidth < 20 {
+			inputWidth = 20
 		}
-		m.ta.SetWidth((m.width / 2) - 4)
-		if m.ta.Width() < 20 {
-			m.ta.SetWidth(20)
-		}
+		m.ti.Width = inputWidth
+		m.ta.SetWidth(inputWidth)
+		m.tiDue.Width = inputWidth
+		m.tiURL.Width = inputWidth
 
 		m.resizeModels()
 		m.adjustWindow()
@@ -198,51 +210,73 @@ func (m KanbanModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.uiState = kanbanStateList
 				m.ti.SetValue("")
 				m.ta.SetValue("")
+				m.tiDue.SetValue("")
+				m.tiURL.SetValue("")
 				return m, nil
 			case "ctrl+s":
 				title := m.ti.Value()
 				if title != "" {
 					m.loaded = false
 					m.uiState = kanbanStateList
-					desc := m.ta.Value()
-					listID := m.tLists[m.formDestIdx].ID
+					
+					posStr := "bottom"
+					if m.formPosIdx == 1 {
+						posStr = "top"
+					}
+
+					opts := trello.CreateCardOptions{
+						ListID:    m.tLists[m.formDestIdx].ID,
+						Name:      title,
+						Desc:      m.ta.Value(),
+						Pos:       posStr,
+						Due:       m.tiDue.Value(),
+						URLSource: m.tiURL.Value(),
+					}
 
 					m.ti.SetValue("")
 					m.ta.SetValue("")
-					return m, tea.Batch(m.createCard(listID, title, desc), m.spin.Tick)
+					m.tiDue.SetValue("")
+					m.tiURL.SetValue("")
+					return m, tea.Batch(m.createCard(opts), m.spin.Tick)
 				}
 			case "tab", "shift+tab":
-				m.formIdx = (m.formIdx + 1) % 3
-				if m.formIdx == 0 {
-					m.ta.Blur()
-					m.ti.Focus()
-				} else if m.formIdx == 1 {
-					m.ti.Blur()
-					m.ta.Focus()
-				} else {
-					m.ti.Blur()
-					m.ta.Blur()
-				}
+				m.formIdx = (m.formIdx + 1) % 6
+				m.ti.Blur()
+				m.ta.Blur()
+				m.tiDue.Blur()
+				m.tiURL.Blur()
+				
+				if m.formIdx == 0 { m.ti.Focus() }
+				if m.formIdx == 1 { m.ta.Focus() }
+				if m.formIdx == 4 { m.tiDue.Focus() }
+				if m.formIdx == 5 { m.tiURL.Focus() }
 				return m, nil
-			case "left", "h":
-				if m.formIdx == 2 && m.formDestIdx > 0 {
-					m.formDestIdx--
+			case "left":
+				if m.formIdx == 2 {
+					if m.formDestIdx > 0 { m.formDestIdx-- }
 					return m, nil
 				}
-			case "right", "l":
-				if m.formIdx == 2 && m.formDestIdx < len(m.tLists)-1 {
-					m.formDestIdx++
+				if m.formIdx == 3 {
+					m.formPosIdx = 0
+					return m, nil
+				}
+			case "right":
+				if m.formIdx == 2 {
+					if m.formDestIdx < len(m.tLists)-1 { m.formDestIdx++ }
+					return m, nil
+				}
+				if m.formIdx == 3 {
+					m.formPosIdx = 1
 					return m, nil
 				}
 			}
 
 			// pass updates to text inputs only
 			var cmd tea.Cmd
-			if m.formIdx == 0 {
-				m.ti, cmd = m.ti.Update(msg)
-			} else if m.formIdx == 1 {
-				m.ta, cmd = m.ta.Update(msg)
-			}
+			if m.formIdx == 0 { m.ti, cmd = m.ti.Update(msg) }
+			if m.formIdx == 1 { m.ta, cmd = m.ta.Update(msg) }
+			if m.formIdx == 4 { m.tiDue, cmd = m.tiDue.Update(msg) }
+			if m.formIdx == 5 { m.tiURL, cmd = m.tiURL.Update(msg) }
 			return m, cmd
 		}
 
@@ -251,9 +285,7 @@ func (m KanbanModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.models[m.focusedListIdx].FilterState() != list.Filtering {
 				switch msg.String() {
 				case "esc", "q":
-					return m, func() tea.Msg {
-						return BackToBoardsMsg{}
-					}
+					return m, func() tea.Msg { return BackToBoardsMsg{} }
 				case "left", "h":
 					if m.focusedListIdx > 0 {
 						m.focusedListIdx--
@@ -270,8 +302,11 @@ func (m KanbanModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.uiState = kanbanStateAddCard
 					m.formIdx = 0
 					m.formDestIdx = m.focusedListIdx
+					m.formPosIdx = 0 // default bottom
 					m.ti.Focus()
 					m.ta.Blur()
+					m.tiDue.Blur()
+					m.tiURL.Blur()
 					return m, nil
 				case "enter":
 					if i, ok := m.models[m.focusedListIdx].SelectedItem().(kanbanItem); ok {
@@ -320,7 +355,6 @@ func (m *KanbanModel) resizeModels() {
 		targetColWidth = m.width
 	}
 
-	// Subtract borders and padding (4) + 2 for help menu height
 	listWidth := targetColWidth - 4
 	listHeight := m.height - 6
 
@@ -377,34 +411,38 @@ func (m KanbanModel) View() string {
 	boardView := lipgloss.JoinHorizontal(lipgloss.Top, views...)
 
 	if m.uiState == kanbanStateAddCard {
-		tStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("205"))
-		if m.formIdx == 0 {
-			tStyle = tStyle.Foreground(lipgloss.Color("62")).Bold(true)
-		}
-
-		dStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("205"))
-		if m.formIdx == 1 {
-			dStyle = dStyle.Foreground(lipgloss.Color("62")).Bold(true)
-		}
-
-		lStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("205"))
-		if m.formIdx == 2 {
-			lStyle = lStyle.Foreground(lipgloss.Color("62")).Bold(true)
+		style := func(idx int) lipgloss.Style {
+			s := lipgloss.NewStyle().Foreground(lipgloss.Color("205"))
+			if m.formIdx == idx {
+				return s.Foreground(lipgloss.Color("62")).Bold(true)
+			}
+			return s
 		}
 
 		destView := fmt.Sprintf("[ ←  %s  → ]", m.tLists[m.formDestIdx].Name)
+		posView := "[ ← Bottom → ]"
+		if m.formPosIdx == 1 {
+			posView = "[ ← Top → ]"
+		}
 
 		formStr := lipgloss.JoinVertical(lipgloss.Left,
 			"Add New Card",
 			"",
-			tStyle.Render("Title:"),
+			style(0).Render("Title:"),
 			m.ti.View(),
-			"",
-			dStyle.Render("Description:"),
+			style(1).Render("Description:"),
 			m.ta.View(),
 			"",
-			lStyle.Render("Destination List:"),
-			lStyle.Render(destView),
+			style(2).Render("Destination List:"),
+			style(2).Render(destView),
+			"",
+			style(3).Render("Position:"),
+			style(3).Render(posView),
+			"",
+			style(4).Render("Due Date (Optional):"),
+			m.tiDue.View(),
+			style(5).Render("URL Source (Optional):"),
+			m.tiURL.View(),
 			"",
 			"(Ctrl+S to save • Tab to cycle • Esc to cancel)",
 		)

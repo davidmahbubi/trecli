@@ -37,6 +37,15 @@ type Card struct {
 	Pos    float64 `json:"pos"`
 }
 
+type CreateCardOptions struct {
+	ListID    string
+	Name      string
+	Desc      string
+	Pos       string
+	Due       string
+	URLSource string
+}
+
 func NewClient(key, token string) *Client {
 	return &Client{
 		apiKey:   key,
@@ -124,12 +133,24 @@ func (c *Client) GetCardsInList(listID string) ([]Card, error) {
 	return cards, nil
 }
 
-func (c *Client) CreateCard(listID, name, desc string) (*Card, error) {
+func (c *Client) CreateCard(opts CreateCardOptions) (*Card, error) {
 	query := map[string]string{
-		"idList": listID,
-		"name":   name,
-		"desc":   desc,
+		"idList": opts.ListID,
+		"name":   opts.Name,
 	}
+	if opts.Desc != "" {
+		query["desc"] = opts.Desc
+	}
+	if opts.Pos != "" {
+		query["pos"] = opts.Pos
+	}
+	if opts.Due != "" {
+		query["due"] = opts.Due
+	}
+	if opts.URLSource != "" {
+		query["urlSource"] = opts.URLSource
+	}
+
 	data, err := c.do("POST", "/cards", query, nil)
 	if err != nil {
 		return nil, err
