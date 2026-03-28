@@ -18,7 +18,11 @@
 - **Instant Board Access**: Load your workspaces and boards interactively.
 - **Side-by-Side Kanban**: Experience a true Trello board natively rendered side-by-side in your terminal, complete with auto-sizing and horizontal scrolling.
 - **Keyboard Driven Navigation**: Vim-like mapping & Arrow-key support to move effortlessly across columns and cards.
-- **Remote Card Management**: Dive into detailed views, Archive cards, or Move them between lists directly from your keyboard.
+- **Remote Card Management**: Dive into detailed views, edit titles and descriptions, move cards between lists, or archive them seamlessly—all from your keyboard.
+- **Rich Markdown Rendering**: Descriptions are visually parsed and rendered perfectly with `glamour`, supporting syntax highlighting, word wrap, and dark mode optimizations dynamically matching your terminal width.
+- **Smart Attachment Downloads**: Press a single key to download all card attachments natively into your working directory with automatic collision-safe renaming.
+- **Browser Integration**: Keep your flow going by jumping directly from the CLI to the card's native URL via your OS default browser.
+- **Fluid Non-Blocking UX**: API calls (like saving edits or archiving) are safely executed in the background, overlaid with beautiful, centered spinner popups so the main UI never freezes.
 - **Secure Local Auth**: Retains your Trello credentials safely via a lightweight, CGO-free local SQLite database (`modernc.org/sqlite`).
 - **Premium TUI Polish**: Dynamic list borders, spinner loaders, and contextual help footers using Charm's `lipgloss` and `bubbles`.
 
@@ -74,8 +78,11 @@ Trecli is meant to be highly efficient. The bottom footer dynamically changes to
 ### Card Detail View
 | Key Binding      | Action                 |
 |------------------|------------------------|
+| `e`              | Edit Card              |
 | `m`              | Move Card to a New List|
 | `a`              | Archive Card           |
+| `d`              | Download Attachments   |
+| `o`              | Open in Browser        |
 | `q / Esc`        | Back to Kanban Board   |
 
 ---
@@ -84,6 +91,7 @@ Trecli is meant to be highly efficient. The bottom footer dynamically changes to
 
 - **[Golang](https://go.dev/)**: Core application logic.
 - **[Bubbletea](https://github.com/charmbracelet/bubbletea)**: The Elm Architecture framework for Go TUIs.
+- **[Glamour](https://github.com/charmbracelet/glamour)**: Powerful Markdown styling and rendering.
 - **[Lipgloss](https://github.com/charmbracelet/lipgloss)**: Terminal styling, colors, and layouts.
 - **[Bubbles](https://github.com/charmbracelet/bubbles)**: Core components (Lists, Spinners, TextInputs, Help Menus).
 - **[Go-SQLite](https://modernc.org/sqlite)**: CGO-free permanent local credential storage.
