@@ -84,25 +84,30 @@ var formKeys = FormKeyMap{
 }
 
 type DetailKeyMap struct {
+	Edit    key.Binding
 	Move    key.Binding
 	Archive key.Binding
 	Back    key.Binding
 }
 
 func (k DetailKeyMap) ShortHelp() []key.Binding {
-	return []key.Binding{k.Move, k.Archive, k.Back}
+	return []key.Binding{k.Edit, k.Move, k.Archive, k.Back}
 }
 
 func (k DetailKeyMap) FullHelp() [][]key.Binding {
 	return [][]key.Binding{
-		{k.Move, k.Archive, k.Back},
+		{k.Edit, k.Move, k.Archive, k.Back},
 	}
 }
 
 var detailKeys = DetailKeyMap{
+	Edit: key.NewBinding(
+		key.WithKeys("e"),
+		key.WithHelp("e", "edit"),
+	),
 	Move: key.NewBinding(
 		key.WithKeys("m"),
-		key.WithHelp("m", "move list"),
+		key.WithHelp("m", "move"),
 	),
 	Archive: key.NewBinding(
 		key.WithKeys("a"),

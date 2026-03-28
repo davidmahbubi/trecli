@@ -182,7 +182,7 @@ func (m KanbanModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.models = make([]list.Model, len(m.tLists))
 		for i, l := range m.tLists {
 			delegate := list.NewDefaultDelegate()
-			delegate.ShowDescription = false // Hide description to save vertical space
+			delegate.ShowDescription = false
 
 			lm := list.New([]list.Item{}, delegate, 0, 0)
 			lm.Title = l.Name
@@ -271,7 +271,6 @@ func (m KanbanModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 
-			// pass updates to text inputs only
 			var cmd tea.Cmd
 			if m.formIdx == 0 { m.ti, cmd = m.ti.Update(msg) }
 			if m.formIdx == 1 { m.ta, cmd = m.ta.Update(msg) }
@@ -302,7 +301,7 @@ func (m KanbanModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.uiState = kanbanStateAddCard
 					m.formIdx = 0
 					m.formDestIdx = m.focusedListIdx
-					m.formPosIdx = 0 // default bottom
+					m.formPosIdx = 0
 					m.ti.Focus()
 					m.ta.Blur()
 					m.tiDue.Blur()

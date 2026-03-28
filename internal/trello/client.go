@@ -30,11 +30,13 @@ type List struct {
 }
 
 type Card struct {
-	ID     string  `json:"id"`
-	Name   string  `json:"name"`
-	Desc   string  `json:"desc"`
-	IDList string  `json:"idList"`
-	Pos    float64 `json:"pos"`
+	ID        string  `json:"id"`
+	Name      string  `json:"name"`
+	Desc      string  `json:"desc"`
+	IDList    string  `json:"idList"`
+	Pos       float64 `json:"pos"`
+	Due       string  `json:"due"`
+	URLSource string  `json:"urlSource"`
 }
 
 type CreateCardOptions struct {
@@ -44,6 +46,17 @@ type CreateCardOptions struct {
 	Pos       string
 	Due       string
 	URLSource string
+}
+
+type UpdateCardOptions struct {
+	CardID    string
+	ListID    string
+	Name      string
+	Desc      string
+	Pos       string
+	Due       string
+	URLSource string
+	Closed    string
 }
 
 func NewClient(key, token string) *Client {
@@ -122,7 +135,7 @@ func (c *Client) GetLists(boardID string) ([]List, error) {
 
 func (c *Client) GetCardsInList(listID string) ([]Card, error) {
 	path := fmt.Sprintf("/lists/%s/cards", listID)
-	data, err := c.do("GET", path, map[string]string{"fields": "name,desc,idList,pos"}, nil)
+	data, err := c.do("GET", path, map[string]string{"fields": "name,desc,idList,pos,due,urlSource"}, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -152,6 +165,42 @@ func (c *Client) CreateCard(opts CreateCardOptions) (*Card, error) {
 	}
 
 	data, err := c.do("POST", "/cards", query, nil)
+	if err != nil {
+		return nil, err
+	}
+	var card Card
+	if err := json.Unmarshal(data, &card); err != nil {
+		return nil, err
+	}
+	return &card, nil
+}
+
+func (c *Client) UpdateCard(opts UpdateCardOptions) (*Card, error) {
+	query := map[string]string{}
+	if opts.ListID != "" {
+		query["idList"] = opts.ListID
+	}
+	if opts.Name != "" {
+		query["name"] = opts.Name
+	}
+	if opts.Desc != "" {
+		query["desc"] = opts.Desc
+	}
+	if opts.Pos != "" {
+		query["pos"] = opts.Pos
+	}
+	if opts.Due != "" {
+		query["due"] = opts.Due
+	}
+	if opts.URLSource != "" {
+		query["urlSource"] = opts.URLSource
+	}
+	if opts.Closed != "" {
+		query["closed"] = opts.Closed
+	}
+
+	path := fmt.Sprintf("/cards/%s", opts.CardID)
+	data, err := c.do("PUT", path, query, nil)
 	if err != nil {
 		return nil, err
 	}
