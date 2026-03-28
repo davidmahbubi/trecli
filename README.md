@@ -24,11 +24,6 @@
 
 ---
 
-## Sneak Peek
-*(You can insert a GIF or Screenshot of your Side-by-Side Kanban Board here)*
-
----
-
 ## Installation
 
 Ensure you have **Go 1.20+** installed on your system.

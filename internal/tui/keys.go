@@ -3,16 +3,17 @@ package tui
 import "github.com/charmbracelet/bubbles/key"
 
 type KanbanKeyMap struct {
-	Left  key.Binding
-	Right key.Binding
-	Up    key.Binding
-	Down  key.Binding
-	Enter key.Binding
-	Quit  key.Binding
+	Left    key.Binding
+	Right   key.Binding
+	Up      key.Binding
+	Down    key.Binding
+	Enter   key.Binding
+	NewCard key.Binding
+	Quit    key.Binding
 }
 
 func (k KanbanKeyMap) ShortHelp() []key.Binding {
-	return []key.Binding{k.Left, k.Right, k.Up, k.Down, k.Enter, k.Quit}
+	return []key.Binding{k.Left, k.Right, k.Up, k.Down, k.Enter, k.NewCard, k.Quit}
 }
 
 func (k KanbanKeyMap) FullHelp() [][]key.Binding {
@@ -43,9 +44,42 @@ var kanbanKeys = KanbanKeyMap{
 		key.WithKeys("enter"),
 		key.WithHelp("enter", "view card"),
 	),
+	NewCard: key.NewBinding(
+		key.WithKeys("n", "c"),
+		key.WithHelp("n/c", "new card"),
+	),
 	Quit: key.NewBinding(
 		key.WithKeys("q", "esc"),
 		key.WithHelp("q/esc", "back"),
+	),
+}
+
+type FormKeyMap struct {
+	Next key.Binding
+	Save key.Binding
+	Quit key.Binding
+}
+
+func (k FormKeyMap) ShortHelp() []key.Binding {
+	return []key.Binding{k.Next, k.Save, k.Quit}
+}
+
+func (k FormKeyMap) FullHelp() [][]key.Binding {
+	return [][]key.Binding{{k.Next, k.Save, k.Quit}}
+}
+
+var formKeys = FormKeyMap{
+	Next: key.NewBinding(
+		key.WithKeys("tab", "shift+tab"),
+		key.WithHelp("tab", "next field"),
+	),
+	Save: key.NewBinding(
+		key.WithKeys("ctrl+s"),
+		key.WithHelp("ctrl+s", "save"),
+	),
+	Quit: key.NewBinding(
+		key.WithKeys("esc"),
+		key.WithHelp("esc", "cancel"),
 	),
 }
 
