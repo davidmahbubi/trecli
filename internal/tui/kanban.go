@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/davidmahbubi/trecli/internal/trello"
 )
@@ -14,13 +15,17 @@ type KanbanModel struct {
 	
 	lists []trello.List
 	cards map[string][]trello.Card // listID -> cards
+	
+	vp viewport.Model
 }
 
 func NewKanbanModel(client *trello.Client, boardID string) KanbanModel {
+	vp := viewport.New(80, 20)
 	return KanbanModel{
 		client:  client,
 		boardID: boardID,
 		cards:   make(map[string][]trello.Card),
+		vp:      vp,
 	}
 }
 
@@ -52,23 +57,47 @@ func (m KanbanModel) Init() tea.Cmd {
 }
 
 func (m KanbanModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	var cmds []tea.Cmd
+	
 	switch msg := msg.(type) {
+	case tea.WindowSizeMsg:
+		m.vp.Width = msg.Width
+		m.vp.Height = msg.Height
 	case kanbanLoadedMsg:
 		m.loaded = true
 		m.lists = msg.lists
 		m.cards = msg.cards
+		
+		s := "Board Kanban\n"
+		s += "(Not interactive yet. Press 'esc' or 'q' to go back, arrows to scroll)\n\n"
+		
+		for _, l := range m.lists {
+			s += fmt.Sprintf("=== %s ===\n", l.Name)
+			cards := m.cards[l.ID]
+			for _, c := range cards {
+				s += fmt.Sprintf(" - %s\n", c.Name)
+			}
+			s += "\n"
+		}
+		m.vp.SetContent(s)
+		
 		return m, nil
 	case errMsg:
 		m.err = msg.err
 		return m, nil
 	case tea.KeyMsg:
-		if msg.String() == "esc" {
+		if msg.String() == "esc" || msg.String() == "q" {
 			return m, func() tea.Msg {
 				return BackToBoardsMsg{}
 			}
 		}
 	}
-	return m, nil
+	
+	var cmd tea.Cmd
+	m.vp, cmd = m.vp.Update(msg)
+	cmds = append(cmds, cmd)
+	
+	return m, tea.Batch(cmds...)
 }
 
 func (m KanbanModel) View() string {
@@ -79,16 +108,5 @@ func (m KanbanModel) View() string {
 		return "Loading kanban board...\n"
 	}
 	
-	s := "Board Kanban\n"
-	s += "(Not interactive yet. Press 'esc' to go back)\n\n"
-	
-	for _, l := range m.lists {
-		s += fmt.Sprintf("=== %s ===\n", l.Name)
-		cards := m.cards[l.ID]
-		for _, c := range cards {
-			s += fmt.Sprintf(" - %s\n", c.Name)
-		}
-		s += "\n"
-	}
-	return s
+	return m.vp.View()
 }

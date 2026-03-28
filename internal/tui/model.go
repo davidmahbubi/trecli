@@ -23,6 +23,9 @@ type MainModel struct {
 	auth   AuthModel
 	boards BoardsModel
 	kanban KanbanModel
+	
+	width  int
+	height int
 }
 
 func NewMainModel(store *storage.Storage, cfg *storage.Config) MainModel {
@@ -54,6 +57,9 @@ func (m MainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 
 	switch msg := msg.(type) {
+	case tea.WindowSizeMsg:
+		m.width = msg.Width
+		m.height = msg.Height
 	case tea.KeyMsg:
 		if msg.String() == "ctrl+c" {
 			return m, tea.Quit
@@ -71,11 +77,15 @@ func (m MainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.boards.Init()
 	case BoardSelectedMsg:
 		m.kanban = NewKanbanModel(m.client, msg.BoardID)
+		if m.width > 0 && m.height > 0 {
+			k, _ := m.kanban.Update(tea.WindowSizeMsg{Width: m.width, Height: m.height})
+			m.kanban = k.(KanbanModel)
+		}
 		m.state = stateKanban
 		return m, m.kanban.Init()
 	case BackToBoardsMsg:
 		m.state = stateBoards
-		return m, m.boards.Init()
+		return m, nil
 	}
 
 	switch m.state {
