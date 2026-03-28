@@ -12,6 +12,7 @@ const (
 	stateAuth state = iota
 	stateBoards
 	stateKanban
+	stateCardDetail
 )
 
 type MainModel struct {
@@ -23,6 +24,7 @@ type MainModel struct {
 	auth   AuthModel
 	boards BoardsModel
 	kanban KanbanModel
+	detail CardDetailModel
 	
 	width  int
 	height int
@@ -76,15 +78,21 @@ func (m MainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.state = stateBoards
 		return m, m.boards.Init()
 	case BoardSelectedMsg:
-		m.kanban = NewKanbanModel(m.client, msg.BoardID)
-		if m.width > 0 && m.height > 0 {
-			k, _ := m.kanban.Update(tea.WindowSizeMsg{Width: m.width, Height: m.height})
-			m.kanban = k.(KanbanModel)
-		}
+		m.kanban = NewKanbanModel(m.client, msg.BoardID, m.width, m.height)
 		m.state = stateKanban
 		return m, m.kanban.Init()
 	case BackToBoardsMsg:
 		m.state = stateBoards
+		return m, nil
+	case CardSelectedMsg:
+		m.detail = NewCardDetailModel(m.client, msg.Card, msg.List, msg.AllLists, m.width, m.height)
+		m.state = stateCardDetail
+		return m, m.detail.Init()
+	case BackToKanbanMsg:
+		m.state = stateKanban
+		if msg.Refresh {
+			return m, m.kanban.Init()
+		}
 		return m, nil
 	}
 
@@ -101,6 +109,10 @@ func (m MainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		newKanban, newCmd := m.kanban.Update(msg)
 		m.kanban = newKanban.(KanbanModel)
 		cmd = newCmd
+	case stateCardDetail:
+		newDetail, newCmd := m.detail.Update(msg)
+		m.detail = newDetail.(CardDetailModel)
+		cmd = newCmd
 	}
 
 	return m, cmd
@@ -114,6 +126,8 @@ func (m MainModel) View() string {
 		return m.boards.View()
 	case stateKanban:
 		return m.kanban.View()
+	case stateCardDetail:
+		return m.detail.View()
 	default:
 		return "Unknown state"
 	}
@@ -130,3 +144,9 @@ type BoardSelectedMsg struct {
 }
 
 type BackToBoardsMsg struct{}
+
+type CardSelectedMsg struct {
+	Card     trello.Card
+	List     trello.List
+	AllLists []trello.List
+}

@@ -140,3 +140,21 @@ func (c *Client) CreateCard(listID, name, desc string) (*Card, error) {
 	}
 	return &card, nil
 }
+
+func (c *Client) UpdateCardList(cardID, newListID string) error {
+	query := map[string]string{
+		"idList": newListID,
+	}
+	path := fmt.Sprintf("/cards/%s", cardID)
+	_, err := c.do("PUT", path, query, nil)
+	return err
+}
+
+func (c *Client) ArchiveCard(cardID string) error {
+	query := map[string]string{
+		"closed": "true",
+	}
+	path := fmt.Sprintf("/cards/%s", cardID)
+	_, err := c.do("PUT", path, query, nil)
+	return err
+}

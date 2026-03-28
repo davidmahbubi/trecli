@@ -2,7 +2,7 @@ package tui
 
 import (
 	"fmt"
-	"github.com/charmbracelet/bubbles/viewport"
+	"github.com/charmbracelet/bubbles/list"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/davidmahbubi/trecli/internal/trello"
 )
@@ -16,16 +16,27 @@ type KanbanModel struct {
 	lists []trello.List
 	cards map[string][]trello.Card // listID -> cards
 	
-	vp viewport.Model
+	list list.Model
 }
 
-func NewKanbanModel(client *trello.Client, boardID string) KanbanModel {
-	vp := viewport.New(80, 20)
+type kanbanItem struct {
+	card trello.Card
+	list trello.List
+}
+
+func (i kanbanItem) Title() string       { return fmt.Sprintf("[%s] %s", i.list.Name, i.card.Name) }
+func (i kanbanItem) Description() string { return i.card.Desc }
+func (i kanbanItem) FilterValue() string { return i.card.Name }
+
+func NewKanbanModel(client *trello.Client, boardID string, w, h int) KanbanModel {
+	l := list.New([]list.Item{}, list.NewDefaultDelegate(), w, h)
+	l.Title = "Kanban Board Cards"
+	
 	return KanbanModel{
 		client:  client,
 		boardID: boardID,
 		cards:   make(map[string][]trello.Card),
-		vp:      vp,
+		list:    l,
 	}
 }
 
@@ -57,47 +68,48 @@ func (m KanbanModel) Init() tea.Cmd {
 }
 
 func (m KanbanModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	var cmds []tea.Cmd
-	
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
-		m.vp.Width = msg.Width
-		m.vp.Height = msg.Height
+		m.list.SetSize(msg.Width, msg.Height)
 	case kanbanLoadedMsg:
 		m.loaded = true
 		m.lists = msg.lists
 		m.cards = msg.cards
 		
-		s := "Board Kanban\n"
-		s += "(Not interactive yet. Press 'esc' or 'q' to go back, arrows to scroll)\n\n"
-		
+		var items []list.Item
 		for _, l := range m.lists {
-			s += fmt.Sprintf("=== %s ===\n", l.Name)
-			cards := m.cards[l.ID]
-			for _, c := range cards {
-				s += fmt.Sprintf(" - %s\n", c.Name)
+			for _, c := range m.cards[l.ID] {
+				items = append(items, kanbanItem{card: c, list: l})
 			}
-			s += "\n"
 		}
-		m.vp.SetContent(s)
+		m.list.SetItems(items)
 		
 		return m, nil
 	case errMsg:
 		m.err = msg.err
 		return m, nil
 	case tea.KeyMsg:
+		if m.list.FilterState() == list.Filtering {
+			break
+		}
 		if msg.String() == "esc" || msg.String() == "q" {
 			return m, func() tea.Msg {
 				return BackToBoardsMsg{}
 			}
 		}
+		if msg.String() == "enter" {
+			if i, ok := m.list.SelectedItem().(kanbanItem); ok {
+				return m, func() tea.Msg {
+					return CardSelectedMsg{Card: i.card, List: i.list, AllLists: m.lists}
+				}
+			}
+		}
 	}
 	
 	var cmd tea.Cmd
-	m.vp, cmd = m.vp.Update(msg)
-	cmds = append(cmds, cmd)
+	m.list, cmd = m.list.Update(msg)
 	
-	return m, tea.Batch(cmds...)
+	return m, cmd
 }
 
 func (m KanbanModel) View() string {
@@ -108,5 +120,5 @@ func (m KanbanModel) View() string {
 		return "Loading kanban board...\n"
 	}
 	
-	return m.vp.View()
+	return m.list.View()
 }
