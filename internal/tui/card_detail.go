@@ -173,8 +173,8 @@ func (m CardDetailModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						Due:       m.tiDue.Value(),
 						URLSource: m.tiURL.Value(),
 					}
-					
-					m.state = detailStateView 
+
+					m.state = detailStateView
 					return m, m.updateCard(opts)
 				}
 			case "tab", "shift+tab":
@@ -183,11 +183,19 @@ func (m CardDetailModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.ta.Blur()
 				m.tiDue.Blur()
 				m.tiURL.Blur()
-				
-				if m.formIdx == 0 { m.ti.Focus() }
-				if m.formIdx == 1 { m.ta.Focus() }
-				if m.formIdx == 4 { m.tiDue.Focus() }
-				if m.formIdx == 5 { m.tiURL.Focus() }
+
+				if m.formIdx == 0 {
+					m.ti.Focus()
+				}
+				if m.formIdx == 1 {
+					m.ta.Focus()
+				}
+				if m.formIdx == 4 {
+					m.tiDue.Focus()
+				}
+				if m.formIdx == 5 {
+					m.tiURL.Focus()
+				}
 				return m, nil
 			case "left":
 				if m.formIdx == 2 && m.formDestIdx > 0 {
@@ -210,10 +218,18 @@ func (m CardDetailModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 
 			var cmd tea.Cmd
-			if m.formIdx == 0 { m.ti, cmd = m.ti.Update(msg) }
-			if m.formIdx == 1 { m.ta, cmd = m.ta.Update(msg) }
-			if m.formIdx == 4 { m.tiDue, cmd = m.tiDue.Update(msg) }
-			if m.formIdx == 5 { m.tiURL, cmd = m.tiURL.Update(msg) }
+			if m.formIdx == 0 {
+				m.ti, cmd = m.ti.Update(msg)
+			}
+			if m.formIdx == 1 {
+				m.ta, cmd = m.ta.Update(msg)
+			}
+			if m.formIdx == 4 {
+				m.tiDue, cmd = m.tiDue.Update(msg)
+			}
+			if m.formIdx == 5 {
+				m.tiURL, cmd = m.tiURL.Update(msg)
+			}
 			return m, cmd
 		}
 
@@ -332,7 +348,7 @@ func (m CardDetailModel) View() string {
 
 		helpStr := "\n" + m.help.View(formKeys)
 		editUI := lipgloss.JoinVertical(lipgloss.Left, formBox, helpStr)
-		
+
 		return lipgloss.Place(m.width, m.height,
 			lipgloss.Center, lipgloss.Center,
 			editUI,
