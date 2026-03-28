@@ -119,17 +119,6 @@ func (m CardDetailModel) Init() tea.Cmd {
 	return nil
 }
 
-func (m CardDetailModel) updateCard(opts trello.UpdateCardOptions) tea.Cmd {
-	return func() tea.Msg {
-		updatedCard, err := m.client.UpdateCard(opts)
-		if err != nil {
-			return errMsg{err}
-		}
-		_ = updatedCard
-		return BackToKanbanMsg{Refresh: true}
-	}
-}
-
 func (m CardDetailModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case errMsg:
@@ -175,7 +164,18 @@ func (m CardDetailModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					}
 
 					m.state = detailStateView
-					return m, m.updateCard(opts)
+					m.ti.Placeholder = "Card Title (required)"
+					return m, func() tea.Msg {
+						return UpdateCardMsg{Opts: opts}
+					}
+				} else {
+					// Give visual feedback when title is empty
+					m.ti.Placeholder = "[TITLE IS REQUIRED]"
+					m.formIdx = 0
+					m.ti.Focus()
+					m.ta.Blur()
+					m.tiDue.Blur()
+					m.tiURL.Blur()
 				}
 			case "tab", "shift+tab":
 				m.formIdx = (m.formIdx + 1) % 6
@@ -266,13 +266,8 @@ func (m CardDetailModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		case "a":
 			if m.state == detailStateView {
-				err := m.client.ArchiveCard(m.card.ID)
-				if err != nil {
-					m.err = err
-					return m, nil
-				}
 				return m, func() tea.Msg {
-					return BackToKanbanMsg{Refresh: true}
+					return ArchiveCardMsg{CardID: m.card.ID}
 				}
 			}
 
@@ -283,7 +278,9 @@ func (m CardDetailModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						CardID: m.card.ID,
 						ListID: i.list.ID,
 					}
-					return m, m.updateCard(opts)
+					return m, func() tea.Msg {
+						return UpdateCardMsg{Opts: opts}
+					}
 				}
 			}
 		}

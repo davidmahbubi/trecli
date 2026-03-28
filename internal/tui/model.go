@@ -94,6 +94,16 @@ func (m MainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, m.kanban.Init()
 		}
 		return m, nil
+	case UpdateCardMsg:
+		m.state = stateKanban
+		newKanban, newCmd := m.kanban.Update(msg)
+		m.kanban = newKanban.(KanbanModel)
+		return m, newCmd
+	case ArchiveCardMsg:
+		m.state = stateKanban
+		newKanban, newCmd := m.kanban.Update(msg)
+		m.kanban = newKanban.(KanbanModel)
+		return m, newCmd
 	}
 
 	switch m.state {
@@ -149,4 +159,12 @@ type CardSelectedMsg struct {
 	Card     trello.Card
 	List     trello.List
 	AllLists []trello.List
+}
+
+type UpdateCardMsg struct {
+	Opts trello.UpdateCardOptions
+}
+
+type ArchiveCardMsg struct {
+	CardID string
 }

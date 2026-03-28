@@ -37,9 +37,10 @@ const (
 
 type KanbanModel struct {
 	client  *trello.Client
-	boardID string
-	err     error
-	loaded  bool
+	boardID     string
+	err         error
+	loaded      bool
+	loadingText string
 
 	width  int
 	height int
@@ -141,6 +142,26 @@ func (m KanbanModel) createCard(opts trello.CreateCardOptions) tea.Cmd {
 	}
 }
 
+func (m KanbanModel) updateCardReq(opts trello.UpdateCardOptions) tea.Cmd {
+	return func() tea.Msg {
+		_, err := m.client.UpdateCard(opts)
+		if err != nil {
+			return errMsg{err}
+		}
+		return m.loadKanban()
+	}
+}
+
+func (m KanbanModel) archiveCardReq(cardID string) tea.Cmd {
+	return func() tea.Msg {
+		err := m.client.ArchiveCard(cardID)
+		if err != nil {
+			return errMsg{err}
+		}
+		return m.loadKanban()
+	}
+}
+
 func (m KanbanModel) Init() tea.Cmd {
 	return tea.Batch(m.loadKanban, m.spin.Tick)
 }
@@ -150,7 +171,7 @@ func (m KanbanModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	switch msg := msg.(type) {
 	case spinner.TickMsg:
-		if !m.loaded {
+		if !m.loaded || m.loadingText != "" {
 			var cmd tea.Cmd
 			m.spin, cmd = m.spin.Update(msg)
 			return m, cmd
@@ -176,6 +197,7 @@ func (m KanbanModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case kanbanLoadedMsg:
 		m.loaded = true
+		m.loadingText = ""
 		m.tLists = msg.lists
 		m.cards = msg.cards
 
@@ -201,7 +223,16 @@ func (m KanbanModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case errMsg:
 		m.err = msg.err
+		m.loadingText = ""
 		return m, nil
+
+	case UpdateCardMsg:
+		m.loadingText = "Updating card..."
+		return m, tea.Batch(m.updateCardReq(msg.Opts), m.spin.Tick)
+
+	case ArchiveCardMsg:
+		m.loadingText = "Archiving card..."
+		return m, tea.Batch(m.archiveCardReq(msg.CardID), m.spin.Tick)
 
 	case tea.KeyMsg:
 		if m.uiState == kanbanStateAddCard {
@@ -216,7 +247,7 @@ func (m KanbanModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case "ctrl+s":
 				title := m.ti.Value()
 				if title != "" {
-					m.loaded = false
+					m.loadingText = "Creating card..."
 					m.uiState = kanbanStateList
 
 					posStr := "bottom"
@@ -237,7 +268,16 @@ func (m KanbanModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.ta.SetValue("")
 					m.tiDue.SetValue("")
 					m.tiURL.SetValue("")
+					m.ti.Placeholder = "Card Title (required)"
 					return m, tea.Batch(m.createCard(opts), m.spin.Tick)
+				} else {
+					// Give visual feedback when title is empty
+					m.ti.Placeholder = "[TITLE IS REQUIRED]"
+					m.formIdx = 0
+					m.ti.Focus()
+					m.ta.Blur()
+					m.tiDue.Blur()
+					m.tiURL.Blur()
 				}
 			case "tab", "shift+tab":
 				m.formIdx = (m.formIdx + 1) % 6
@@ -393,11 +433,11 @@ func (m KanbanModel) View() string {
 	if m.err != nil {
 		return fmt.Sprintf("Error: %v\nPress esc to go back", m.err)
 	}
-	if !m.loaded {
+	if !m.loaded && m.loadingText == "" {
 		return "\n  " + m.spin.View() + " Loading kanban board...\n"
 	}
 
-	if len(m.models) == 0 {
+	if len(m.models) == 0 && m.loadingText == "" {
 		return "Board is empty. Press esc to go back.\n"
 	}
 
@@ -475,6 +515,18 @@ func (m KanbanModel) View() string {
 		boardView = lipgloss.Place(m.width, m.height-3,
 			lipgloss.Center, lipgloss.Center,
 			formBox,
+		)
+	} else if m.loadingText != "" {
+		popupStr := lipgloss.JoinHorizontal(lipgloss.Center, m.spin.View(), " "+m.loadingText)
+		popupBox := lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			Padding(1, 4).
+			BorderForeground(lipgloss.Color("62")).
+			Render(popupStr)
+
+		boardView = lipgloss.Place(m.width, m.height-3,
+			lipgloss.Center, lipgloss.Center,
+			popupBox,
 		)
 	}
 
