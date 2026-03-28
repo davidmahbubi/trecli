@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strings"
 )
 
 const BaseURL = "https://api.trello.com/1"
@@ -29,6 +30,12 @@ type List struct {
 	Pos  float64 `json:"pos"`
 }
 
+type Label struct {
+	ID    string `json:"id"`
+	Name  string `json:"name"`
+	Color string `json:"color"`
+}
+
 type Card struct {
 	ID        string  `json:"id"`
 	Name      string  `json:"name"`
@@ -38,6 +45,7 @@ type Card struct {
 	Due       string  `json:"due"`
 	URLSource string  `json:"urlSource"`
 	ShortUrl  string  `json:"shortUrl"`
+	Labels    []Label `json:"labels"`
 }
 
 type Attachment struct {
@@ -55,6 +63,7 @@ type CreateCardOptions struct {
 	Pos       string
 	Due       string
 	URLSource string
+	LabelIDs  []string
 }
 
 type UpdateCardOptions struct {
@@ -66,6 +75,7 @@ type UpdateCardOptions struct {
 	Due       string
 	URLSource string
 	Closed    string
+	LabelIDs  []string
 }
 
 func NewClient(key, token string) *Client {
@@ -144,7 +154,7 @@ func (c *Client) GetLists(boardID string) ([]List, error) {
 
 func (c *Client) GetCardsInList(listID string) ([]Card, error) {
 	path := fmt.Sprintf("/lists/%s/cards", listID)
-	data, err := c.do("GET", path, map[string]string{"fields": "name,desc,idList,pos,due,urlSource,shortUrl"}, nil)
+	data, err := c.do("GET", path, map[string]string{"fields": "name,desc,idList,pos,due,urlSource,shortUrl,labels"}, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -212,6 +222,9 @@ func (c *Client) CreateCard(opts CreateCardOptions) (*Card, error) {
 	if opts.URLSource != "" {
 		query["urlSource"] = opts.URLSource
 	}
+	if len(opts.LabelIDs) > 0 {
+		query["idLabels"] = strings.Join(opts.LabelIDs, ",")
+	}
 
 	data, err := c.do("POST", "/cards", query, nil)
 	if err != nil {
@@ -247,6 +260,8 @@ func (c *Client) UpdateCard(opts UpdateCardOptions) (*Card, error) {
 	if opts.Closed != "" {
 		query["closed"] = opts.Closed
 	}
+	// Always send idLabels so we can also clear all labels
+	query["idLabels"] = strings.Join(opts.LabelIDs, ",")
 
 	path := fmt.Sprintf("/cards/%s", opts.CardID)
 	data, err := c.do("PUT", path, query, nil)
@@ -276,4 +291,17 @@ func (c *Client) ArchiveCard(cardID string) error {
 	path := fmt.Sprintf("/cards/%s", cardID)
 	_, err := c.do("PUT", path, query, nil)
 	return err
+}
+
+func (c *Client) GetBoardLabels(boardID string) ([]Label, error) {
+	path := fmt.Sprintf("/boards/%s/labels", boardID)
+	data, err := c.do("GET", path, nil, nil)
+	if err != nil {
+		return nil, err
+	}
+	var labels []Label
+	if err := json.Unmarshal(data, &labels); err != nil {
+		return nil, err
+	}
+	return labels, nil
 }

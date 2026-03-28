@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/charmbracelet/bubbles/help"
 	"github.com/charmbracelet/bubbles/list"
@@ -70,8 +71,34 @@ type kanbanItem struct {
 	tList trello.List
 }
 
-func (i kanbanItem) Title() string       { return i.card.Name }
-func (i kanbanItem) Description() string { return i.card.Desc }
+func (i kanbanItem) Title() string { return i.card.Name }
+func (i kanbanItem) Description() string {
+	var parts []string
+
+	if len(i.card.Labels) > 0 {
+		var labelStrs []string
+		for _, l := range i.card.Labels {
+			name := l.Name
+			if name == "" {
+				name = l.Color
+			}
+			if name != "" {
+				labelStrs = append(labelStrs, "["+name+"]")
+			}
+		}
+		if len(labelStrs) > 0 {
+			parts = append(parts, strings.Join(labelStrs, " "))
+		}
+	}
+
+	desc := i.card.Desc
+	if desc == "" {
+		desc = "No Description"
+	}
+	parts = append(parts, desc)
+
+	return strings.Join(parts, " • ")
+}
 func (i kanbanItem) FilterValue() string { return i.card.Name }
 
 func NewKanbanModel(client *trello.Client, boardID string, w, h int) KanbanModel {
@@ -204,7 +231,7 @@ func (m KanbanModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.models = make([]list.Model, len(m.tLists))
 		for i, l := range m.tLists {
 			delegate := list.NewDefaultDelegate()
-			delegate.ShowDescription = false
+			delegate.ShowDescription = true
 
 			lm := list.New([]list.Item{}, delegate, 0, 0)
 			lm.Title = l.Name
@@ -338,7 +365,6 @@ func (m KanbanModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, cmd
 		}
 
-		// List State Key Bindings
 		if m.loaded && len(m.models) > 0 {
 			if m.models[m.focusedListIdx].FilterState() != list.Filtering {
 				switch msg.String() {
@@ -369,7 +395,7 @@ func (m KanbanModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				case "enter":
 					if i, ok := m.models[m.focusedListIdx].SelectedItem().(kanbanItem); ok {
 						return m, func() tea.Msg {
-							return CardSelectedMsg{Card: i.card, List: i.tList, AllLists: m.tLists}
+							return CardSelectedMsg{BoardID: m.boardID, Card: i.card, List: i.tList, AllLists: m.tLists}
 						}
 					}
 				}

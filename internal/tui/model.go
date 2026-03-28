@@ -85,7 +85,7 @@ func (m MainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.state = stateBoards
 		return m, nil
 	case CardSelectedMsg:
-		m.detail = NewCardDetailModel(m.client, msg.Card, msg.List, msg.AllLists, m.width, m.height)
+		m.detail = NewCardDetailModel(m.client, msg.BoardID, msg.Card, msg.List, msg.AllLists, m.width, m.height)
 		m.state = stateCardDetail
 		return m, m.detail.Init()
 	case BackToKanbanMsg:
@@ -156,6 +156,7 @@ type BoardSelectedMsg struct {
 type BackToBoardsMsg struct{}
 
 type CardSelectedMsg struct {
+	BoardID  string
 	Card     trello.Card
 	List     trello.List
 	AllLists []trello.List

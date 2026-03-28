@@ -50,6 +50,11 @@ type CardDetailModel struct {
 
 	statusMsg    string
 	descRendered string
+
+	boardID          string
+	boardLabels      []trello.Label
+	selectedLabelIDs map[string]bool
+	labelCursor      int
 }
 
 type moveListItem struct {
@@ -60,7 +65,7 @@ func (i moveListItem) Title() string       { return i.list.Name }
 func (i moveListItem) Description() string { return "" }
 func (i moveListItem) FilterValue() string { return i.list.Name }
 
-func NewCardDetailModel(client *trello.Client, card trello.Card, currList trello.List, allLists []trello.List, w, h int) CardDetailModel {
+func NewCardDetailModel(client *trello.Client, boardID string, card trello.Card, currList trello.List, allLists []trello.List, w, h int) CardDetailModel {
 	ml := list.New([]list.Item{}, list.NewDefaultDelegate(), w, h-6)
 	ml.Title = "Select List to Move Card To"
 	ml.SetShowHelp(false)
@@ -130,22 +135,24 @@ func NewCardDetailModel(client *trello.Client, card trello.Card, currList trello
 	}
 
 	return CardDetailModel{
-		client:       client,
-		card:         card,
-		currList:     currList,
-		allLists:     allLists,
-		width:        w,
-		height:       h,
-		state:        detailStateView,
-		moveList:     ml,
-		help:         help.New(),
-		ti:           ti,
-		ta:           ta,
-		tiDue:        tiDue,
-		tiURL:        tiURL,
-		formDestIdx:  destIdx,
-		formPosIdx:   0,
-		descRendered: descStr,
+		client:           client,
+		boardID:          boardID,
+		card:             card,
+		currList:         currList,
+		allLists:         allLists,
+		width:            w,
+		height:           h,
+		state:            detailStateView,
+		moveList:         ml,
+		help:             help.New(),
+		ti:               ti,
+		ta:               ta,
+		tiDue:            tiDue,
+		tiURL:            tiURL,
+		formDestIdx:      destIdx,
+		formPosIdx:       0,
+		descRendered:     descStr,
+		selectedLabelIDs: initSelectedLabels(card.Labels),
 	}
 }
 
@@ -165,6 +172,10 @@ func (m CardDetailModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case attachmentDownloadedMsg:
 		m.statusMsg = fmt.Sprintf("Successfully downloaded: %s", msg.filename)
 		m.state = detailStateView
+		return m, nil
+
+	case boardLabelsLoadedMsg:
+		m.boardLabels = msg.labels
 		return m, nil
 
 	case tea.WindowSizeMsg:
@@ -214,6 +225,13 @@ func (m CardDetailModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						posStr = "top"
 					}
 
+					var labelIDs []string
+					for id, selected := range m.selectedLabelIDs {
+						if selected {
+							labelIDs = append(labelIDs, id)
+						}
+					}
+
 					opts := trello.UpdateCardOptions{
 						CardID:    m.card.ID,
 						ListID:    m.allLists[m.formDestIdx].ID,
@@ -222,6 +240,7 @@ func (m CardDetailModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						Pos:       posStr,
 						Due:       m.tiDue.Value(),
 						URLSource: m.tiURL.Value(),
+						LabelIDs:  labelIDs,
 					}
 
 					m.state = detailStateView
@@ -239,7 +258,8 @@ func (m CardDetailModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.tiURL.Blur()
 				}
 			case "tab", "shift+tab":
-				m.formIdx = (m.formIdx + 1) % 6
+				// 7 form fields: 0=title,1=desc,2=list,3=pos,4=labels,5=due,6=url
+				m.formIdx = (m.formIdx + 1) % 7
 				m.ti.Blur()
 				m.ta.Blur()
 				m.tiDue.Blur()
@@ -251,10 +271,10 @@ func (m CardDetailModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if m.formIdx == 1 {
 					m.ta.Focus()
 				}
-				if m.formIdx == 4 {
+				if m.formIdx == 5 {
 					m.tiDue.Focus()
 				}
-				if m.formIdx == 5 {
+				if m.formIdx == 6 {
 					m.tiURL.Focus()
 				}
 				return m, nil
@@ -267,6 +287,9 @@ func (m CardDetailModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.formPosIdx = 0
 					return m, nil
 				}
+				if m.formIdx == 4 && len(m.boardLabels) > 0 {
+					// cycle label cursor left — handled via labelCursor field if added, skip for now
+				}
 			case "right":
 				if m.formIdx == 2 && m.formDestIdx < len(m.allLists)-1 {
 					m.formDestIdx++
@@ -276,6 +299,14 @@ func (m CardDetailModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.formPosIdx = 1
 					return m, nil
 				}
+			case " ":
+				// Toggle label under cursor when on labels field
+				if m.formIdx == 4 && m.labelCursor < len(m.boardLabels) {
+					lid := m.boardLabels[m.labelCursor].ID
+					m.selectedLabelIDs[lid] = !m.selectedLabelIDs[lid]
+					return m, nil
+				}
+
 			}
 
 			var cmd tea.Cmd
@@ -286,9 +317,22 @@ func (m CardDetailModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.ta, cmd = m.ta.Update(msg)
 			}
 			if m.formIdx == 4 {
-				m.tiDue, cmd = m.tiDue.Update(msg)
+				// label nav: up/down to cycle
+				switch msg.String() {
+				case "up", "k":
+					if m.labelCursor > 0 {
+						m.labelCursor--
+					}
+				case "down", "j":
+					if m.labelCursor < len(m.boardLabels)-1 {
+						m.labelCursor++
+					}
+				}
 			}
 			if m.formIdx == 5 {
+				m.tiDue, cmd = m.tiDue.Update(msg)
+			}
+			if m.formIdx == 6 {
 				m.tiURL, cmd = m.tiURL.Update(msg)
 			}
 			return m, cmd
@@ -318,10 +362,15 @@ func (m CardDetailModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.state == detailStateView {
 				m.state = detailStateEdit
 				m.formIdx = 0
+				m.labelCursor = 0
 				m.ti.Focus()
 				m.ta.Blur()
 				m.tiDue.Blur()
 				m.tiURL.Blur()
+				// Fetch board labels if not yet loaded
+				if len(m.boardLabels) == 0 {
+					return m, m.fetchBoardLabels()
+				}
 				return m, nil
 			}
 
@@ -420,9 +469,12 @@ func (m CardDetailModel) View() string {
 			style(3).Render("Position:"),
 			style(3).Render(posView),
 			"",
-			style(4).Render("Due Date (Optional):"),
+			style(4).Render("Labels (↑↓ navigate • Space to toggle):"),
+			m.renderLabelPicker(),
+			"",
+			style(5).Render("Due Date (Optional):"),
 			m.tiDue.View(),
-			style(5).Render("URL Source (Optional):"),
+			style(6).Render("URL Source (Optional):"),
 			m.tiURL.View(),
 			"",
 			"(Ctrl+S to save • Tab to cycle • Esc to cancel)",
@@ -460,6 +512,13 @@ func (m CardDetailModel) View() string {
 	content := lipgloss.JoinVertical(lipgloss.Left,
 		h1.Render(m.card.Name),
 		h2.Render("List: ")+m.currList.Name,
+	)
+
+	if len(m.card.Labels) > 0 {
+		content = lipgloss.JoinVertical(lipgloss.Left, content, "", h2.Render("Labels: ")+renderLabelBadges(m.card.Labels))
+	}
+
+	content = lipgloss.JoinVertical(lipgloss.Left, content,
 		"",
 		h2.Render("Description:"),
 		m.descRendered,
@@ -536,5 +595,101 @@ func (m CardDetailModel) downloadAttachments() tea.Cmd {
 
 		msgStr := strings.Join(files, ", ")
 		return attachmentDownloadedMsg{filename: msgStr}
+	}
+}
+
+// ─── Label Helpers ──────────────────────────────────────────────────────────
+
+type boardLabelsLoadedMsg struct {
+	labels []trello.Label
+}
+
+func initSelectedLabels(existing []trello.Label) map[string]bool {
+	m := make(map[string]bool)
+	for _, l := range existing {
+		m[l.ID] = true
+	}
+	return m
+}
+
+func (m CardDetailModel) fetchBoardLabels() tea.Cmd {
+	return func() tea.Msg {
+		labels, err := m.client.GetBoardLabels(m.boardID)
+		if err != nil {
+			return errMsg{fmt.Errorf("failed to load board labels: %w", err)}
+		}
+		return boardLabelsLoadedMsg{labels: labels}
+	}
+}
+
+func (m CardDetailModel) renderLabelPicker() string {
+	if len(m.boardLabels) == 0 {
+		return lipgloss.NewStyle().Foreground(lipgloss.Color("240")).Render("  (Loading labels...)")
+	}
+
+	var sb strings.Builder
+	focused := m.formIdx == 4
+	for i, l := range m.boardLabels {
+		name := l.Name
+		if name == "" {
+			name = l.Color
+		}
+		checked := "○"
+		if m.selectedLabelIDs[l.ID] {
+			checked = "◉"
+		}
+		cursor := "  "
+		if focused && i == m.labelCursor {
+			cursor = "▶ "
+		}
+		color := trelloColorToANSI(l.Color)
+		badge := lipgloss.NewStyle().Foreground(lipgloss.Color(color)).Render(fmt.Sprintf("%s%s %s", cursor, checked, name))
+		sb.WriteString(badge + "\n")
+	}
+	return strings.TrimRight(sb.String(), "\n")
+}
+
+func renderLabelBadges(labels []trello.Label) string {
+	var parts []string
+	for _, l := range labels {
+		name := l.Name
+		if name == "" {
+			name = l.Color
+		}
+		color := trelloColorToANSI(l.Color)
+		badge := lipgloss.NewStyle().
+			Foreground(lipgloss.Color("0")).
+			Background(lipgloss.Color(color)).
+			Padding(0, 1).
+			Render(name)
+		parts = append(parts, badge)
+	}
+	return strings.Join(parts, " ")
+}
+
+func trelloColorToANSI(color string) string {
+	switch color {
+	case "green":
+		return "green"
+	case "yellow":
+		return "yellow"
+	case "orange":
+		return "214"
+	case "red":
+		return "red"
+	case "purple":
+		return "135"
+	case "blue":
+		return "69"
+	case "sky":
+		return "81"
+	case "lime":
+		return "154"
+	case "pink":
+		return "213"
+	case "black":
+		return "240"
+	default:
+		return "252"
 	}
 }

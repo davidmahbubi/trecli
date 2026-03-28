@@ -21,6 +21,7 @@
 - **Side-by-Side Kanban**: Experience a true Trello board natively rendered side-by-side in your terminal, complete with auto-sizing and horizontal scrolling.
 - **Keyboard Driven Navigation**: Vim-like mapping & Arrow-key support to move effortlessly across columns and cards.
 - **Remote Card Management**: Dive into detailed views, edit titles and descriptions, move cards between lists, or archive them seamlessly—all from your keyboard.
+- **Full Label Support**: Visualize card labels directly on the Kanban board and in detailed views with colored badges. Integrated label picker in edit mode lets you toggle labels efficiently.
 - **Rich Markdown Rendering**: Descriptions are visually parsed and rendered perfectly with `glamour`, supporting syntax highlighting, word wrap, and dark mode optimizations dynamically matching your terminal width.
 - **Smart Attachment Downloads**: Press a single key to download all card attachments natively into your working directory with automatic collision-safe renaming.
 - **Browser Integration**: Keep your flow going by jumping directly from the CLI to the card's native URL via your OS default browser.
@@ -86,6 +87,15 @@ Trecli is meant to be highly efficient. The bottom footer dynamically changes to
 | `d`              | Download Attachments   |
 | `o`              | Open in Browser        |
 | `q / Esc`        | Back to Kanban Board   |
+
+### Card Edit Mode
+| Key Binding      | Action                 |
+|------------------|------------------------|
+| `Tab`            | Cycle through fields   |
+| `↑ / ↓`          | Navigate Label Picker  |
+| `Space`          | Toggle selected Label  |
+| `Ctrl+S`         | Save Changes           |
+| `Esc`            | Cancel edits           |
 
 ---
 
