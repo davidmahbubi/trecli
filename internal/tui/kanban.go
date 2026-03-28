@@ -36,7 +36,7 @@ const (
 )
 
 type KanbanModel struct {
-	client  *trello.Client
+	client      *trello.Client
 	boardID     string
 	err         error
 	loaded      bool
@@ -271,7 +271,6 @@ func (m KanbanModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.ti.Placeholder = "Card Title (required)"
 					return m, tea.Batch(m.createCard(opts), m.spin.Tick)
 				} else {
-					// Give visual feedback when title is empty
 					m.ti.Placeholder = "[TITLE IS REQUIRED]"
 					m.formIdx = 0
 					m.ti.Focus()

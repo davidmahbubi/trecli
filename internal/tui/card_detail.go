@@ -2,14 +2,19 @@ package tui
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
 
 	"github.com/charmbracelet/bubbles/help"
 	"github.com/charmbracelet/bubbles/list"
 	"github.com/charmbracelet/bubbles/textarea"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/glamour"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/davidmahbubi/trecli/internal/trello"
+	"github.com/skratchdot/open-golang/open"
 )
 
 type detailState int
@@ -18,6 +23,7 @@ const (
 	detailStateView detailState = iota
 	detailStateMove
 	detailStateEdit
+	detailStateDownloadLoad
 )
 
 type CardDetailModel struct {
@@ -41,6 +47,9 @@ type CardDetailModel struct {
 	formPosIdx  int
 	tiDue       textinput.Model
 	tiURL       textinput.Model
+
+	statusMsg    string
+	descRendered string
 }
 
 type moveListItem struct {
@@ -96,22 +105,47 @@ func NewCardDetailModel(client *trello.Client, card trello.Card, currList trello
 	tiDue.Width = inputWidth
 	tiURL.Width = inputWidth
 
+	var descStr string
+	if card.Desc == "" {
+		descStr = lipgloss.NewStyle().Foreground(lipgloss.Color("240")).Render("(No description provided)")
+	} else {
+		wrapW := w - 8
+		if wrapW < 20 {
+			wrapW = 20
+		}
+		r, err := glamour.NewTermRenderer(
+			glamour.WithStandardStyle("dark"),
+			glamour.WithWordWrap(wrapW),
+		)
+		if err == nil {
+			rendered, err := r.Render(card.Desc)
+			if err == nil {
+				descStr = strings.TrimSpace(rendered)
+			} else {
+				descStr = card.Desc
+			}
+		} else {
+			descStr = card.Desc
+		}
+	}
+
 	return CardDetailModel{
-		client:      client,
-		card:        card,
-		currList:    currList,
-		allLists:    allLists,
-		width:       w,
-		height:      h,
-		state:       detailStateView,
-		moveList:    ml,
-		help:        help.New(),
-		ti:          ti,
-		ta:          ta,
-		tiDue:       tiDue,
-		tiURL:       tiURL,
-		formDestIdx: destIdx,
-		formPosIdx:  0,
+		client:       client,
+		card:         card,
+		currList:     currList,
+		allLists:     allLists,
+		width:        w,
+		height:       h,
+		state:        detailStateView,
+		moveList:     ml,
+		help:         help.New(),
+		ti:           ti,
+		ta:           ta,
+		tiDue:        tiDue,
+		tiURL:        tiURL,
+		formDestIdx:  destIdx,
+		formPosIdx:   0,
+		descRendered: descStr,
 	}
 }
 
@@ -123,11 +157,38 @@ func (m CardDetailModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case errMsg:
 		m.err = msg.err
+		if m.state == detailStateDownloadLoad {
+			m.state = detailStateView
+		}
 		return m, nil
+
+	case attachmentDownloadedMsg:
+		m.statusMsg = fmt.Sprintf("Successfully downloaded: %s", msg.filename)
+		m.state = detailStateView
+		return m, nil
+
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
 		m.help.Width = msg.Width
+
+		// Re-render markdown on window size change
+		if m.card.Desc != "" {
+			wrapW := msg.Width - 8
+			if wrapW < 20 {
+				wrapW = 20
+			}
+			r, err := glamour.NewTermRenderer(
+				glamour.WithStandardStyle("dark"),
+				glamour.WithWordWrap(wrapW),
+			)
+			if err == nil {
+				rendered, err := r.Render(m.card.Desc)
+				if err == nil {
+					m.descRendered = strings.TrimSpace(rendered)
+				}
+			}
+		}
 		m.moveList.SetSize(msg.Width, msg.Height-6)
 
 		inputWidth := (m.width / 2) - 4
@@ -243,6 +304,12 @@ func (m CardDetailModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.state = detailStateView
 				return m, nil
 			}
+			if m.state == detailStateDownloadLoad {
+				m.state = detailStateView
+				return m, nil
+			}
+			m.statusMsg = ""
+			m.err = nil
 			return m, func() tea.Msg {
 				return BackToKanbanMsg{}
 			}
@@ -269,6 +336,25 @@ func (m CardDetailModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, func() tea.Msg {
 					return ArchiveCardMsg{CardID: m.card.ID}
 				}
+			}
+
+		case "d":
+			if m.state == detailStateView {
+				m.state = detailStateDownloadLoad
+				m.statusMsg = ""
+				m.err = nil
+				return m, m.downloadAttachments()
+			}
+
+		case "o":
+			if m.state == detailStateView {
+				if m.card.ShortUrl != "" {
+					_ = open.Run(m.card.ShortUrl)
+					m.statusMsg = "Opening card in default browser..."
+				} else {
+					m.err = fmt.Errorf("no URL available for this card")
+				}
+				return m, nil
 			}
 
 		case "enter":
@@ -298,6 +384,11 @@ func (m CardDetailModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m CardDetailModel) View() string {
 	if m.err != nil {
 		return fmt.Sprintf("Error: %v\n\nPress esc to return", m.err)
+	}
+
+	if m.state == detailStateDownloadLoad {
+		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center,
+			"Downloading attachments...\n\nPress esc to cancel")
 	}
 
 	if m.state == detailStateEdit {
@@ -366,19 +457,12 @@ func (m CardDetailModel) View() string {
 		Padding(1, 3).
 		Width(m.width - 4)
 
-	var descStr string
-	if m.card.Desc == "" {
-		descStr = lipgloss.NewStyle().Foreground(lipgloss.Color("240")).Render("(No description provided)")
-	} else {
-		descStr = m.card.Desc
-	}
-
 	content := lipgloss.JoinVertical(lipgloss.Left,
 		h1.Render(m.card.Name),
 		h2.Render("List: ")+m.currList.Name,
 		"",
 		h2.Render("Description:"),
-		descStr,
+		m.descRendered,
 	)
 
 	if m.card.Due != "" {
@@ -386,6 +470,11 @@ func (m CardDetailModel) View() string {
 	}
 	if m.card.URLSource != "" {
 		content = lipgloss.JoinVertical(lipgloss.Left, content, "", h2.Render("URL Source: ")+m.card.URLSource)
+	}
+
+	if m.statusMsg != "" {
+		statusStr := lipgloss.NewStyle().Foreground(lipgloss.Color("42")).Render(m.statusMsg)
+		content = lipgloss.JoinVertical(lipgloss.Left, content, "", statusStr)
 	}
 
 	styledBox := box.Render(content)
@@ -396,4 +485,56 @@ func (m CardDetailModel) View() string {
 
 type BackToKanbanMsg struct {
 	Refresh bool
+}
+
+type attachmentDownloadedMsg struct {
+	filename string
+}
+
+func (m CardDetailModel) downloadAttachments() tea.Cmd {
+	return func() tea.Msg {
+		atts, err := m.client.GetAttachments(m.card.ID)
+		if err != nil {
+			return errMsg{fmt.Errorf("failed to fetch attachments: %w", err)}
+		}
+
+		if len(atts) == 0 {
+			return errMsg{fmt.Errorf("no attachments found on this card")}
+		}
+
+		var files []string
+		for _, target := range atts {
+			b, err := m.client.DownloadAttachment(target.URL)
+			if err != nil {
+				return errMsg{fmt.Errorf("failed to download attachment %s: %w", target.Name, err)}
+			}
+
+			safeCardName := strings.ReplaceAll(m.card.Name, "/", "-")
+			safeCardName = strings.ReplaceAll(safeCardName, "\\", "-")
+
+			ext := filepath.Ext(target.Name)
+			originalBase := strings.TrimSuffix(target.Name, ext)
+
+			baseName := fmt.Sprintf("%s - %s", safeCardName, originalBase)
+
+			filename := baseName + ext
+			counter := 1
+			for {
+				if _, err := os.Stat(filename); os.IsNotExist(err) {
+					break
+				}
+				filename = fmt.Sprintf("%s (%d)%s", baseName, counter, ext)
+				counter++
+			}
+
+			err = os.WriteFile(filename, b, 0644)
+			if err != nil {
+				return errMsg{fmt.Errorf("failed to save file %s locally: %w", filename, err)}
+			}
+			files = append(files, filename)
+		}
+
+		msgStr := strings.Join(files, ", ")
+		return attachmentDownloadedMsg{filename: msgStr}
+	}
 }

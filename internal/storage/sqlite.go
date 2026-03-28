@@ -12,7 +12,6 @@ type Storage struct {
 	db *sql.DB
 }
 
-// Config represents user stored credentials
 type Config struct {
 	APIKey   string
 	APIToken string
@@ -27,22 +26,22 @@ func New() (*Storage, error) {
 	if err := os.MkdirAll(configDir, 0755); err != nil {
 		return nil, err
 	}
-	
+
 	dbPath := filepath.Join(configDir, "trecli.db")
 	db, err := sql.Open("sqlite", dbPath)
 	if err != nil {
 		return nil, err
 	}
-	
+
 	if err := db.Ping(); err != nil {
 		return nil, err
 	}
-	
+
 	s := &Storage{db: db}
 	if err := s.migrate(); err != nil {
 		return nil, err
 	}
-	
+
 	return s, nil
 }
 
@@ -54,7 +53,7 @@ func (s *Storage) migrate() error {
 			api_token TEXT NOT NULL
 		);`,
 	}
-	
+
 	for _, q := range queries {
 		if _, err := s.db.Exec(q); err != nil {
 			return err
@@ -68,7 +67,7 @@ func (s *Storage) GetConfig() (*Config, error) {
 	err := s.db.QueryRow(`SELECT api_key, api_token FROM config WHERE id = 1`).Scan(&config.APIKey, &config.APIToken)
 	if err != nil {
 		if err == sql.ErrNoRows {
-			return nil, nil // No config yet
+			return nil, nil
 		}
 		return nil, err
 	}

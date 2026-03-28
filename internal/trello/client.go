@@ -24,8 +24,8 @@ type Board struct {
 }
 
 type List struct {
-	ID   string `json:"id"`
-	Name string `json:"name"`
+	ID   string  `json:"id"`
+	Name string  `json:"name"`
 	Pos  float64 `json:"pos"`
 }
 
@@ -37,6 +37,15 @@ type Card struct {
 	Pos       float64 `json:"pos"`
 	Due       string  `json:"due"`
 	URLSource string  `json:"urlSource"`
+	ShortUrl  string  `json:"shortUrl"`
+}
+
+type Attachment struct {
+	ID       string `json:"id"`
+	Name     string `json:"name"`
+	MimeType string `json:"mimeType"`
+	URL      string `json:"url"`
+	Bytes    int    `json:"bytes"`
 }
 
 type CreateCardOptions struct {
@@ -135,7 +144,7 @@ func (c *Client) GetLists(boardID string) ([]List, error) {
 
 func (c *Client) GetCardsInList(listID string) ([]Card, error) {
 	path := fmt.Sprintf("/lists/%s/cards", listID)
-	data, err := c.do("GET", path, map[string]string{"fields": "name,desc,idList,pos,due,urlSource"}, nil)
+	data, err := c.do("GET", path, map[string]string{"fields": "name,desc,idList,pos,due,urlSource,shortUrl"}, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -144,6 +153,46 @@ func (c *Client) GetCardsInList(listID string) ([]Card, error) {
 		return nil, err
 	}
 	return cards, nil
+}
+
+func (c *Client) GetAttachments(cardID string) ([]Attachment, error) {
+	path := fmt.Sprintf("/cards/%s/attachments", cardID)
+	data, err := c.do("GET", path, nil, nil)
+	if err != nil {
+		return nil, err
+	}
+	var atts []Attachment
+	if err := json.Unmarshal(data, &atts); err != nil {
+		return nil, err
+	}
+	return atts, nil
+}
+
+func (c *Client) DownloadAttachment(rawURL string) ([]byte, error) {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("GET", u.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	authHeader := fmt.Sprintf(`OAuth oauth_consumer_key="%s", oauth_token="%s"`, c.apiKey, c.apiToken)
+	req.Header.Set("Authorization", authHeader)
+
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("failed to download attachment: status %d", resp.StatusCode)
+	}
+
+	return io.ReadAll(resp.Body)
 }
 
 func (c *Client) CreateCard(opts CreateCardOptions) (*Card, error) {
