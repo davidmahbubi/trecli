@@ -3,7 +3,9 @@ package tui
 import (
 	"fmt"
 
+	"github.com/charmbracelet/bubbles/help"
 	"github.com/charmbracelet/bubbles/list"
+	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/davidmahbubi/trecli/internal/trello"
@@ -39,6 +41,9 @@ type KanbanModel struct {
 	models         []list.Model
 	focusedListIdx int
 	windowStartIdx int
+
+	spin spinner.Model
+	help help.Model
 }
 
 type kanbanItem struct {
@@ -51,12 +56,18 @@ func (i kanbanItem) Description() string { return i.card.Desc }
 func (i kanbanItem) FilterValue() string { return i.card.Name }
 
 func NewKanbanModel(client *trello.Client, boardID string, w, h int) KanbanModel {
+	s := spinner.New()
+	s.Spinner = spinner.Dot
+	s.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("205"))
+
 	return KanbanModel{
 		client:  client,
 		boardID: boardID,
 		cards:   make(map[string][]trello.Card),
 		width:   w,
 		height:  h,
+		spin:    s,
+		help:    help.New(),
 	}
 }
 
@@ -84,16 +95,24 @@ func (m KanbanModel) loadKanban() tea.Msg {
 }
 
 func (m KanbanModel) Init() tea.Cmd {
-	return m.loadKanban
+	return tea.Batch(m.loadKanban, m.spin.Tick)
 }
 
 func (m KanbanModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmds []tea.Cmd
 
 	switch msg := msg.(type) {
+	case spinner.TickMsg:
+		if !m.loaded {
+			var cmd tea.Cmd
+			m.spin, cmd = m.spin.Update(msg)
+			return m, cmd
+		}
+
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
+		m.help.Width = msg.Width
 		m.resizeModels()
 		m.adjustWindow()
 		return m, nil
@@ -199,9 +218,9 @@ func (m *KanbanModel) resizeModels() {
 		targetColWidth = m.width
 	}
 	
-	// Subtract borders and padding (2 for border + 2 for padding = 4)
+	// Subtract borders and padding (4) + 2 for help menu height
 	listWidth := targetColWidth - 4
-	listHeight := m.height - 4
+	listHeight := m.height - 6
 	
 	if listWidth < 10 {
 		listWidth = 10
@@ -220,7 +239,7 @@ func (m KanbanModel) View() string {
 		return fmt.Sprintf("Error: %v\nPress esc to go back", m.err)
 	}
 	if !m.loaded {
-		return "Loading kanban board...\n"
+		return "\n  " + m.spin.View() + " Loading kanban board...\n"
 	}
 
 	if len(m.models) == 0 {
@@ -253,5 +272,8 @@ func (m KanbanModel) View() string {
 		views = append(views, v)
 	}
 
-	return lipgloss.JoinHorizontal(lipgloss.Top, views...)
+	boardView := lipgloss.JoinHorizontal(lipgloss.Top, views...)
+	helpView := "\n" + m.help.View(kanbanKeys)
+
+	return lipgloss.JoinVertical(lipgloss.Left, boardView, helpView)
 }

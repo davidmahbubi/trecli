@@ -47,7 +47,6 @@ func (m AuthModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch msg.String() {
 		case "enter":
 			if m.focus == len(m.inputs)-1 {
-				// Submit
 				return m, func() tea.Msg {
 					return AuthSuccessMsg{
 						APIKey:   m.inputs[0].Value(),

@@ -1,15 +1,17 @@
 package tui
 
 import (
-	"fmt"
 	"github.com/charmbracelet/bubbles/list"
+	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/davidmahbubi/trecli/internal/trello"
 )
 
 type BoardsModel struct {
 	client *trello.Client
 	list   list.Model
+	spin   spinner.Model
 	err    error
 	loaded bool
 }
@@ -24,10 +26,16 @@ func (i boardItem) FilterValue() string { return i.board.Name }
 
 func NewBoardsModel(client *trello.Client) BoardsModel {
 	l := list.New([]list.Item{}, list.NewDefaultDelegate(), 80, 20)
-	l.Title = "Trello Boards"
+	l.Title = "Select Trello Board"
+
+	s := spinner.New()
+	s.Spinner = spinner.Dot
+	s.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("205"))
+
 	return BoardsModel{
 		client: client,
 		list:   l,
+		spin:   s,
 	}
 }
 
@@ -45,11 +53,17 @@ func (m BoardsModel) loadBoards() tea.Msg {
 }
 
 func (m BoardsModel) Init() tea.Cmd {
-	return m.loadBoards
+	return tea.Batch(m.loadBoards, m.spin.Tick)
 }
 
 func (m BoardsModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
+	case spinner.TickMsg:
+		if !m.loaded {
+			var cmd tea.Cmd
+			m.spin, cmd = m.spin.Update(msg)
+			return m, cmd
+		}
 	case tea.WindowSizeMsg:
 		m.list.SetSize(msg.Width, msg.Height)
 		return m, nil
@@ -82,10 +96,10 @@ func (m BoardsModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m BoardsModel) View() string {
 	if m.err != nil {
-		return fmt.Sprintf("Error loading boards: %v\n", m.err)
+		return "Error: " + m.err.Error()
 	}
 	if !m.loaded {
-		return "Loading boards...\n"
+		return "\n  " + m.spin.View() + " Loading boards...\n"
 	}
 	return m.list.View()
 }
