@@ -1,5 +1,7 @@
 <div align="center">
 
+<img src="assets/icon.png" width="120" alt="Trecli Logo"/>
+
 # Trecli
 
 **A Beautiful, Terminal-based TUI Client for Trello.**
