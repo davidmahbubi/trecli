@@ -9,17 +9,20 @@ type KanbanKeyMap struct {
 	Down    key.Binding
 	Enter   key.Binding
 	NewCard key.Binding
-	Quit    key.Binding
+	Move             key.Binding
+	OpenBrowser      key.Binding
+	OpenBoardBrowser key.Binding
+	Quit             key.Binding
 }
 
 func (k KanbanKeyMap) ShortHelp() []key.Binding {
-	return []key.Binding{k.Left, k.Right, k.Up, k.Down, k.Enter, k.NewCard, k.Quit}
+	return []key.Binding{k.Left, k.Right, k.NewCard, k.Move, k.OpenBrowser, k.OpenBoardBrowser, k.Quit}
 }
 
 func (k KanbanKeyMap) FullHelp() [][]key.Binding {
 	return [][]key.Binding{
 		{k.Left, k.Right, k.Up, k.Down},
-		{k.Enter, k.Quit},
+		{k.Enter, k.NewCard, k.Move, k.OpenBrowser, k.OpenBoardBrowser, k.Quit},
 	}
 }
 
@@ -47,6 +50,18 @@ var kanbanKeys = KanbanKeyMap{
 	NewCard: key.NewBinding(
 		key.WithKeys("n", "c"),
 		key.WithHelp("n/c", "new card"),
+	),
+	Move: key.NewBinding(
+		key.WithKeys("m"),
+		key.WithHelp("m", "move"),
+	),
+	OpenBrowser: key.NewBinding(
+		key.WithKeys("o"),
+		key.WithHelp("o", "open card"),
+	),
+	OpenBoardBrowser: key.NewBinding(
+		key.WithKeys("ctrl+o"),
+		key.WithHelp("ctrl+o", "open board"),
 	),
 	Quit: key.NewBinding(
 		key.WithKeys("q", "esc"),

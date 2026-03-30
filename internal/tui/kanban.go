@@ -3,6 +3,7 @@ package tui
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/bubbles/help"
 	"github.com/charmbracelet/bubbles/list"
@@ -12,6 +13,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/davidmahbubi/trecli/internal/trello"
+	"github.com/skratchdot/open-golang/open"
 )
 
 var (
@@ -34,6 +36,7 @@ type kanbanUIState int
 const (
 	kanbanStateList kanbanUIState = iota
 	kanbanStateAddCard
+	kanbanStateMoveCard
 )
 
 type KanbanModel struct {
@@ -56,14 +59,18 @@ type KanbanModel struct {
 	spin spinner.Model
 	help help.Model
 
-	uiState     kanbanUIState
-	ti          textinput.Model
-	ta          textarea.Model
-	formIdx     int
-	formDestIdx int
-	formPosIdx  int
-	tiDue       textinput.Model
-	tiURL       textinput.Model
+	uiState      kanbanUIState
+	ti           textinput.Model
+	ta           textarea.Model
+	formIdx      int
+	formDestIdx  int
+	formPosIdx   int
+	tiDue        textinput.Model
+	tiURL        textinput.Model
+	moveList     list.Model
+	selectedCard trello.Card
+	boardURL     string
+	statusMsg    string
 }
 
 type kanbanItem struct {
@@ -101,7 +108,7 @@ func (i kanbanItem) Description() string {
 }
 func (i kanbanItem) FilterValue() string { return i.card.Name }
 
-func NewKanbanModel(client *trello.Client, boardID string, w, h int) KanbanModel {
+func NewKanbanModel(client *trello.Client, boardID, boardURL string, w, h int) KanbanModel {
 	s := spinner.New()
 	s.Spinner = spinner.Dot
 	s.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("205"))
@@ -121,18 +128,24 @@ func NewKanbanModel(client *trello.Client, boardID string, w, h int) KanbanModel
 	tiURL := textinput.New()
 	tiURL.Placeholder = "https://... (optional)"
 
+	ml := list.New([]list.Item{}, list.NewDefaultDelegate(), w/2, h*2/3)
+	ml.Title = "Select List to Move Card To"
+	ml.SetShowHelp(false)
+
 	return KanbanModel{
-		client:  client,
-		boardID: boardID,
-		cards:   make(map[string][]trello.Card),
-		width:   w,
-		height:  h,
-		spin:    s,
-		help:    help.New(),
-		ti:      ti,
-		ta:      ta,
-		tiDue:   tiDue,
-		tiURL:   tiURL,
+		client:   client,
+		boardID:  boardID,
+		boardURL: boardURL,
+		cards:    make(map[string][]trello.Card),
+		width:    w,
+		height:   h,
+		spin:     s,
+		help:     help.New(),
+		ti:       ti,
+		ta:       ta,
+		tiDue:    tiDue,
+		tiURL:    tiURL,
+		moveList: ml,
 	}
 }
 
@@ -204,6 +217,10 @@ func (m KanbanModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, cmd
 		}
 
+	case clearStatusMsg:
+		m.statusMsg = ""
+		return m, nil
+
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
@@ -217,6 +234,7 @@ func (m KanbanModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.ta.SetWidth(inputWidth)
 		m.tiDue.Width = inputWidth
 		m.tiURL.Width = inputWidth
+		m.moveList.SetSize(msg.Width/2, msg.Height*2/3)
 
 		m.resizeModels()
 		m.adjustWindow()
@@ -365,6 +383,35 @@ func (m KanbanModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, cmd
 		}
 
+		if m.uiState == kanbanStateMoveCard {
+			if m.moveList.FilterState() == list.Filtering {
+				var cmd tea.Cmd
+				m.moveList, cmd = m.moveList.Update(msg)
+				return m, cmd
+			}
+
+			switch msg.String() {
+			case "esc", "q":
+				m.uiState = kanbanStateList
+				return m, nil
+			case "enter":
+				if i, ok := m.moveList.SelectedItem().(moveListItem); ok {
+					opts := trello.UpdateCardOptions{
+						CardID: m.selectedCard.ID,
+						ListID: i.list.ID,
+						Pos:    "top",
+					}
+					m.uiState = kanbanStateList
+					m.loadingText = "Moving card..."
+					return m, tea.Batch(m.updateCardReq(opts), m.spin.Tick)
+				}
+			}
+
+			var cmd tea.Cmd
+			m.moveList, cmd = m.moveList.Update(msg)
+			return m, cmd
+		}
+
 		if m.loaded && len(m.models) > 0 {
 			if m.models[m.focusedListIdx].FilterState() != list.Filtering {
 				switch msg.String() {
@@ -392,12 +439,46 @@ func (m KanbanModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.tiDue.Blur()
 					m.tiURL.Blur()
 					return m, nil
+				case "m":
+					if i, ok := m.models[m.focusedListIdx].SelectedItem().(kanbanItem); ok {
+						m.uiState = kanbanStateMoveCard
+						m.selectedCard = i.card
+
+						var items []list.Item
+						for _, l := range m.tLists {
+							if l.ID != i.tList.ID {
+								items = append(items, moveListItem{list: l})
+							}
+						}
+						m.moveList.SetItems(items)
+					}
+					return m, nil
 				case "enter":
 					if i, ok := m.models[m.focusedListIdx].SelectedItem().(kanbanItem); ok {
 						return m, func() tea.Msg {
 							return CardSelectedMsg{BoardID: m.boardID, Card: i.card, List: i.tList, AllLists: m.tLists}
 						}
 					}
+				case "o":
+					if i, ok := m.models[m.focusedListIdx].SelectedItem().(kanbanItem); ok {
+						if i.card.ShortUrl != "" {
+							_ = open.Run(i.card.ShortUrl)
+							m.statusMsg = "Opening card in default browser..."
+							return m, m.clearStatusAfter(3 * time.Second)
+						} else {
+							m.err = fmt.Errorf("no URL available for this card")
+						}
+					}
+					return m, nil
+				case "ctrl+o":
+					if m.boardURL != "" {
+						_ = open.Run(m.boardURL)
+						m.statusMsg = "Opening board in default browser..."
+						return m, m.clearStatusAfter(3 * time.Second)
+					} else {
+						m.err = fmt.Errorf("no URL available for this board")
+					}
+					return m, nil
 				}
 			}
 		}
@@ -440,7 +521,7 @@ func (m *KanbanModel) resizeModels() {
 	}
 
 	listWidth := targetColWidth - 4
-	listHeight := m.height - 6
+	listHeight := m.height - 8
 
 	if listWidth < 10 {
 		listWidth = 10
@@ -494,6 +575,22 @@ func (m KanbanModel) View() string {
 
 	boardView := lipgloss.JoinHorizontal(lipgloss.Top, views...)
 
+	leftArrow := "  "
+	if m.windowStartIdx > 0 {
+		leftArrow = "← "
+	}
+	rightArrow := "  "
+	if endIdx < len(m.models) {
+		rightArrow = " →"
+	}
+	indicatorText := fmt.Sprintf("%s Showing lists %d-%d of %d %s", leftArrow, m.windowStartIdx+1, endIdx, len(m.models), rightArrow)
+	indicatorView := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("62")).
+		PaddingBottom(1).
+		Render(indicatorText)
+	boardView = lipgloss.JoinVertical(lipgloss.Left, indicatorView, boardView)
+
+
 	if m.uiState == kanbanStateAddCard {
 		style := func(idx int) lipgloss.Style {
 			s := lipgloss.NewStyle().Foreground(lipgloss.Color("205"))
@@ -541,6 +638,18 @@ func (m KanbanModel) View() string {
 			lipgloss.Center, lipgloss.Center,
 			formBox,
 		)
+	} else if m.uiState == kanbanStateMoveCard {
+		moveListStr := m.moveList.View()
+		moveBox := lipgloss.NewStyle().
+			Border(lipgloss.DoubleBorder()).
+			Padding(1, 2).
+			BorderForeground(lipgloss.Color("62")).
+			Render(moveListStr)
+
+		boardView = lipgloss.Place(m.width, m.height-3,
+			lipgloss.Center, lipgloss.Center,
+			moveBox,
+		)
 	} else if m.loadingText != "" {
 		popupStr := lipgloss.JoinHorizontal(lipgloss.Center, m.spin.View(), " "+m.loadingText)
 		popupBox := lipgloss.NewStyle().
@@ -555,6 +664,11 @@ func (m KanbanModel) View() string {
 		)
 	}
 
+	if m.statusMsg != "" {
+		statusStr := lipgloss.NewStyle().Foreground(lipgloss.Color("42")).Render(m.statusMsg)
+		boardView = lipgloss.JoinVertical(lipgloss.Center, boardView, statusStr)
+	}
+
 	keysToUse := kanbanKeys
 	helpView := "\n" + m.help.View(keysToUse)
 
@@ -563,4 +677,12 @@ func (m KanbanModel) View() string {
 	}
 
 	return lipgloss.JoinVertical(lipgloss.Left, boardView, helpView)
+}
+
+type clearStatusMsg struct{}
+
+func (m KanbanModel) clearStatusAfter(d time.Duration) tea.Cmd {
+	return tea.Tick(d, func(t time.Time) tea.Msg {
+		return clearStatusMsg{}
+	})
 }

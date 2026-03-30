@@ -78,7 +78,7 @@ func (m MainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.state = stateBoards
 		return m, m.boards.Init()
 	case BoardSelectedMsg:
-		m.kanban = NewKanbanModel(m.client, msg.BoardID, m.width, m.height)
+		m.kanban = NewKanbanModel(m.client, msg.BoardID, msg.BoardURL, m.width, m.height)
 		m.state = stateKanban
 		return m, m.kanban.Init()
 	case BackToBoardsMsg:
@@ -150,7 +150,8 @@ type AuthSuccessMsg struct {
 }
 
 type BoardSelectedMsg struct {
-	BoardID string
+	BoardID  string
+	BoardURL string
 }
 
 type BackToBoardsMsg struct{}

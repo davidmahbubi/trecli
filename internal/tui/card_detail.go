@@ -412,6 +412,7 @@ func (m CardDetailModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					opts := trello.UpdateCardOptions{
 						CardID: m.card.ID,
 						ListID: i.list.ID,
+						Pos:    "top",
 					}
 					return m, func() tea.Msg {
 						return UpdateCardMsg{Opts: opts}

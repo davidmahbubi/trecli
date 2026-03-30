@@ -22,6 +22,7 @@ type Board struct {
 	ID   string `json:"id"`
 	Name string `json:"name"`
 	Desc string `json:"desc"`
+	URL  string `json:"url"`
 }
 
 type List struct {
@@ -128,7 +129,7 @@ func (c *Client) do(method, path string, query map[string]string, body []byte) (
 }
 
 func (c *Client) GetBoards() ([]Board, error) {
-	data, err := c.do("GET", "/members/me/boards", map[string]string{"fields": "name,desc"}, nil)
+	data, err := c.do("GET", "/members/me/boards", map[string]string{"fields": "name,desc,url"}, nil)
 	if err != nil {
 		return nil, err
 	}
