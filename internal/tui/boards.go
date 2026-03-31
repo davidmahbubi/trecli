@@ -83,7 +83,7 @@ func (m BoardsModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			i, ok := m.list.SelectedItem().(boardItem)
 			if ok {
 				return m, func() tea.Msg {
-					return BoardSelectedMsg{BoardID: i.board.ID, BoardURL: i.board.URL}
+					return BoardSelectedMsg{BoardID: i.board.ID, BoardName: i.board.Name, BoardURL: i.board.URL}
 				}
 			}
 		}

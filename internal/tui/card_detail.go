@@ -8,6 +8,7 @@ import (
 
 	"github.com/charmbracelet/bubbles/help"
 	"github.com/charmbracelet/bubbles/list"
+	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/bubbles/textarea"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
@@ -24,7 +25,18 @@ const (
 	detailStateMove
 	detailStateEdit
 	detailStateDownloadLoad
+	detailStateChecklist
+	detailStateAddChecklist
+	detailStateAddCheckItem
+	detailStateChecklistLoading
 )
+
+type flatCheckItem struct {
+	listIdx int
+	itemIdx int
+	id      string
+	state   string
+}
 
 type CardDetailModel struct {
 	client   *trello.Client
@@ -55,6 +67,16 @@ type CardDetailModel struct {
 	boardLabels      []trello.Label
 	selectedLabelIDs map[string]bool
 	labelCursor      int
+
+	checklists       []trello.Checklist
+	flatCheckItems   []flatCheckItem
+	checklistCursor  int
+	checklistsLoaded bool
+	prevState        detailState
+
+	tiChecklist textinput.Model
+	spin        spinner.Model
+	loadingText string
 }
 
 type moveListItem struct {
@@ -153,19 +175,33 @@ func NewCardDetailModel(client *trello.Client, boardID string, card trello.Card,
 		formPosIdx:       0,
 		descRendered:     descStr,
 		selectedLabelIDs: initSelectedLabels(card.Labels),
+		checklistsLoaded: false,
+		tiChecklist:      textinput.New(),
+		spin:             spinner.New(spinner.WithSpinner(spinner.Dot), spinner.WithStyle(lipgloss.NewStyle().Foreground(lipgloss.Color("205")))),
 	}
 }
 
 func (m CardDetailModel) Init() tea.Cmd {
-	return nil
+	return tea.Batch(m.fetchChecklists(), m.spin.Tick)
 }
 
 func (m CardDetailModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
+	case spinner.TickMsg:
+		if m.state == detailStateChecklistLoading {
+			var cmd tea.Cmd
+			m.spin, cmd = m.spin.Update(msg)
+			return m, cmd
+		}
+
 	case errMsg:
 		m.err = msg.err
-		if m.state == detailStateDownloadLoad {
-			m.state = detailStateView
+		if m.state == detailStateDownloadLoad || m.state == detailStateChecklistLoading {
+			if m.state == detailStateChecklistLoading {
+				m.state = m.prevState
+			} else {
+				m.state = detailStateView
+			}
 		}
 		return m, nil
 
@@ -178,12 +214,24 @@ func (m CardDetailModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.boardLabels = msg.labels
 		return m, nil
 
+	case checklistsLoadedMsg:
+		m.checklists = msg.checklists
+		m.checklistsLoaded = true
+		m.buildFlatCheckItems()
+		if m.state == detailStateChecklistLoading {
+			m.state = m.prevState
+		} else if m.state == detailStateView {
+			// Stay in view if we are not actively in checklist mode
+			m.state = detailStateView
+		}
+		m.loadingText = ""
+		return m, nil
+
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
 		m.help.Width = msg.Width
 
-		// Re-render markdown on window size change
 		if m.card.Desc != "" {
 			wrapW := msg.Width - 8
 			if wrapW < 20 {
@@ -212,6 +260,50 @@ func (m CardDetailModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.tiURL.Width = inputWidth
 
 	case tea.KeyMsg:
+		if m.state == detailStateAddChecklist || m.state == detailStateAddCheckItem {
+			switch msg.String() {
+			case "enter":
+				name := m.tiChecklist.Value()
+				if name == "" {
+					return m, nil
+				}
+				if m.state == detailStateAddChecklist {
+					m.loadingText = "Creating checklist..."
+					m.prevState = detailStateView // Go back to card view after new checklist
+					m.state = detailStateChecklistLoading
+					return m, tea.Batch(m.createChecklistCmd(name), m.spin.Tick)
+				} else {
+					var id string
+					if len(m.flatCheckItems) > 0 {
+						item := m.flatCheckItems[m.checklistCursor]
+						id = m.checklists[item.listIdx].ID
+					} else if len(m.checklists) > 0 {
+						id = m.checklists[0].ID
+					}
+
+					if id == "" {
+						m.state = detailStateView
+						return m, nil
+					}
+
+					m.loadingText = "Adding checklist item..."
+					m.prevState = detailStateChecklist
+					m.state = detailStateChecklistLoading
+					return m, tea.Batch(m.createCheckItemCmd(id, name), m.spin.Tick)
+				}
+			case "esc":
+				if m.state == detailStateAddChecklist {
+					m.state = detailStateView
+				} else {
+					m.state = detailStateChecklist
+				}
+				return m, nil
+			}
+			var cmd tea.Cmd
+			m.tiChecklist, cmd = m.tiChecklist.Update(msg)
+			return m, cmd
+		}
+
 		if m.state == detailStateEdit {
 			switch msg.String() {
 			case "esc":
@@ -249,7 +341,6 @@ func (m CardDetailModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						return UpdateCardMsg{Opts: opts}
 					}
 				} else {
-					// Give visual feedback when title is empty
 					m.ti.Placeholder = "[TITLE IS REQUIRED]"
 					m.formIdx = 0
 					m.ti.Focus()
@@ -258,7 +349,6 @@ func (m CardDetailModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.tiURL.Blur()
 				}
 			case "tab", "shift+tab":
-				// 7 form fields: 0=title,1=desc,2=list,3=pos,4=labels,5=due,6=url
 				m.formIdx = (m.formIdx + 1) % 7
 				m.ti.Blur()
 				m.ta.Blur()
@@ -300,7 +390,6 @@ func (m CardDetailModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m, nil
 				}
 			case " ":
-				// Toggle label under cursor when on labels field
 				if m.formIdx == 4 && m.labelCursor < len(m.boardLabels) {
 					lid := m.boardLabels[m.labelCursor].ID
 					m.selectedLabelIDs[lid] = !m.selectedLabelIDs[lid]
@@ -317,7 +406,6 @@ func (m CardDetailModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.ta, cmd = m.ta.Update(msg)
 			}
 			if m.formIdx == 4 {
-				// label nav: up/down to cycle
 				switch msg.String() {
 				case "up", "k":
 					if m.labelCursor > 0 {
@@ -344,8 +432,11 @@ func (m CardDetailModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		switch msg.String() {
 		case "esc", "q":
-			if m.state == detailStateMove {
+			if m.state == detailStateMove || m.state == detailStateChecklist || m.state == detailStateAddChecklist || m.state == detailStateAddCheckItem {
 				m.state = detailStateView
+				if m.state == detailStateAddChecklist || m.state == detailStateAddCheckItem {
+					m.state = detailStateChecklist
+				}
 				return m, nil
 			}
 			if m.state == detailStateDownloadLoad {
@@ -358,6 +449,65 @@ func (m CardDetailModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return BackToKanbanMsg{}
 			}
 
+		case "c":
+			if m.state == detailStateView && len(m.checklists) > 0 {
+				m.state = detailStateChecklist
+				if m.checklistCursor >= len(m.flatCheckItems) {
+					m.checklistCursor = 0
+				}
+				return m, nil
+			}
+
+		case "n":
+			if m.state == detailStateChecklist {
+				m.state = detailStateAddChecklist
+				m.tiChecklist.Placeholder = "Checklist Name"
+				m.tiChecklist.Focus()
+				m.tiChecklist.SetValue("")
+				return m, nil
+			}
+
+		case "x":
+			if m.state == detailStateChecklist && len(m.flatCheckItems) > 0 {
+				item := m.flatCheckItems[m.checklistCursor]
+				m.loadingText = "Deleting checklist..."
+				m.prevState = detailStateChecklist
+				m.state = detailStateChecklistLoading
+				return m, tea.Batch(m.deleteChecklistCmd(m.checklists[item.listIdx].ID), m.spin.Tick)
+			}
+
+		case "up", "k":
+			if m.state == detailStateChecklist {
+				if m.checklistCursor > 0 {
+					m.checklistCursor--
+				}
+				return m, nil
+			}
+
+		case "down", "j":
+			if m.state == detailStateChecklist {
+				if m.checklistCursor < len(m.flatCheckItems)-1 {
+					m.checklistCursor++
+				}
+				return m, nil
+			}
+
+		case " ":
+			if m.state == detailStateChecklist {
+				if len(m.flatCheckItems) > 0 {
+					item := m.flatCheckItems[m.checklistCursor]
+					newState := "complete"
+					if item.state == "complete" {
+						newState = "incomplete"
+					}
+
+					m.flatCheckItems[m.checklistCursor].state = newState
+					m.checklists[item.listIdx].CheckItems[item.itemIdx].State = newState
+
+					return m, m.updateCheckItemCmd(item.id, newState)
+				}
+			}
+
 		case "e":
 			if m.state == detailStateView {
 				m.state = detailStateEdit
@@ -367,7 +517,6 @@ func (m CardDetailModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.ta.Blur()
 				m.tiDue.Blur()
 				m.tiURL.Blur()
-				// Fetch board labels if not yet loaded
 				if len(m.boardLabels) == 0 {
 					return m, m.fetchBoardLabels()
 				}
@@ -381,6 +530,13 @@ func (m CardDetailModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 
 		case "a":
+			if m.state == detailStateChecklist && len(m.checklists) > 0 {
+				m.state = detailStateAddCheckItem
+				m.tiChecklist.Placeholder = "Item Name"
+				m.tiChecklist.Focus()
+				m.tiChecklist.SetValue("")
+				return m, nil
+			}
 			if m.state == detailStateView {
 				return m, func() tea.Msg {
 					return ArchiveCardMsg{CardID: m.card.ID}
@@ -388,6 +544,13 @@ func (m CardDetailModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 
 		case "d":
+			if m.state == detailStateChecklist && len(m.flatCheckItems) > 0 {
+				item := m.flatCheckItems[m.checklistCursor]
+				m.loadingText = "Deleting checklist item..."
+				m.prevState = detailStateChecklist
+				m.state = detailStateChecklistLoading
+				return m, tea.Batch(m.deleteCheckItemCmd(m.checklists[item.listIdx].ID, item.id), m.spin.Tick)
+			}
 			if m.state == detailStateView {
 				m.state = detailStateDownloadLoad
 				m.statusMsg = ""
@@ -436,9 +599,13 @@ func (m CardDetailModel) View() string {
 		return fmt.Sprintf("Error: %v\n\nPress esc to return", m.err)
 	}
 
-	if m.state == detailStateDownloadLoad {
+	if m.state == detailStateDownloadLoad || m.state == detailStateChecklistLoading {
+		txt := "Downloading attachments..."
+		if m.state == detailStateChecklistLoading {
+			txt = m.loadingText
+		}
 		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center,
-			"Downloading attachments...\n\nPress esc to cancel")
+			fmt.Sprintf("%s %s\n\nPress esc to cancel", m.spin.View(), txt))
 	}
 
 	if m.state == detailStateEdit {
@@ -501,7 +668,6 @@ func (m CardDetailModel) View() string {
 		return lipgloss.JoinVertical(lipgloss.Left, m.moveList.View(), helpView)
 	}
 
-	// Default View
 	h1 := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("62")).MarginBottom(1)
 	h2 := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("205"))
 	box := lipgloss.NewStyle().
@@ -525,6 +691,47 @@ func (m CardDetailModel) View() string {
 		m.descRendered,
 	)
 
+	if len(m.checklists) > 0 {
+		var checklistView strings.Builder
+		flatIdx := 0
+		for _, list := range m.checklists {
+			checklistView.WriteString(fmt.Sprintf("\n%s\n", h2.Render(list.Name)))
+
+			total := len(list.CheckItems)
+			completed := 0
+			for _, item := range list.CheckItems {
+				if item.State == "complete" {
+					completed++
+				}
+			}
+			if total > 0 {
+				pct := (completed * 100) / total
+				barLen := 20
+				filled := (pct * barLen) / 100
+				bar := strings.Repeat("█", filled) + strings.Repeat("░", barLen-filled)
+				checklistView.WriteString(fmt.Sprintf("%d%% [%s]\n", pct, bar))
+			}
+
+			for _, item := range list.CheckItems {
+				cursor := "  "
+				if m.state == detailStateChecklist && flatIdx == m.checklistCursor {
+					cursor = "▶ "
+				}
+				box := "[ ]"
+				if item.State == "complete" {
+					box = "[✓]"
+				}
+				style := lipgloss.NewStyle()
+				if m.state == detailStateChecklist && flatIdx == m.checklistCursor {
+					style = style.Foreground(lipgloss.Color("62"))
+				}
+				checklistView.WriteString(style.Render(fmt.Sprintf("%s%s %s", cursor, box, item.Name)) + "\n")
+				flatIdx++
+			}
+		}
+		content = lipgloss.JoinVertical(lipgloss.Left, content, checklistView.String())
+	}
+
 	if m.card.Due != "" {
 		content = lipgloss.JoinVertical(lipgloss.Left, content, "", h2.Render("Due Date: ")+m.card.Due)
 	}
@@ -537,8 +744,40 @@ func (m CardDetailModel) View() string {
 		content = lipgloss.JoinVertical(lipgloss.Left, content, "", statusStr)
 	}
 
+	if m.state == detailStateAddChecklist || m.state == detailStateAddCheckItem {
+		m.tiChecklist.Width = m.width - 10
+		title := "Add New Checklist"
+		if m.state == detailStateAddCheckItem {
+			title = "Add Item to Checklist"
+		}
+
+		formStr := lipgloss.JoinVertical(lipgloss.Left,
+			lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("62")).Render(title),
+			"",
+			m.tiChecklist.View(),
+			"",
+			lipgloss.NewStyle().Foreground(lipgloss.Color("240")).Render("(Enter to save • Esc to cancel)"),
+		)
+
+		formBox := lipgloss.NewStyle().
+			Border(lipgloss.DoubleBorder()).
+			Padding(1, 2).
+			BorderForeground(lipgloss.Color("62")).
+			Render(formStr)
+
+		return lipgloss.Place(m.width, m.height,
+			lipgloss.Center, lipgloss.Center,
+			formBox,
+		)
+	}
+
 	styledBox := box.Render(content)
-	helpView := "\n" + m.help.View(detailKeys)
+
+	var keysToUse help.KeyMap = detailKeys
+	if m.state == detailStateChecklist {
+		keysToUse = checklistKeys
+	}
+	helpView := "\n" + m.help.View(keysToUse)
 
 	return lipgloss.JoinVertical(lipgloss.Left, styledBox, helpView)
 }
@@ -599,7 +838,90 @@ func (m CardDetailModel) downloadAttachments() tea.Cmd {
 	}
 }
 
-// ─── Label Helpers ──────────────────────────────────────────────────────────
+type checklistsLoadedMsg struct {
+	checklists []trello.Checklist
+}
+
+func (m CardDetailModel) fetchChecklists() tea.Cmd {
+	return func() tea.Msg {
+		lists, err := m.client.GetChecklists(m.card.ID)
+		if err != nil {
+			return errMsg{fmt.Errorf("failed to load checklists: %w", err)}
+		}
+		return checklistsLoadedMsg{checklists: lists}
+	}
+}
+
+func (m *CardDetailModel) buildFlatCheckItems() {
+	var flat []flatCheckItem
+	for i, list := range m.checklists {
+		for j, item := range list.CheckItems {
+			flat = append(flat, flatCheckItem{
+				listIdx: i,
+				itemIdx: j,
+				id:      item.ID,
+				state:   item.State,
+			})
+		}
+	}
+	m.flatCheckItems = flat
+	if m.checklistCursor >= len(m.flatCheckItems) {
+		m.checklistCursor = len(m.flatCheckItems) - 1
+	}
+	if m.checklistCursor < 0 && len(m.flatCheckItems) > 0 {
+		m.checklistCursor = 0
+	}
+}
+
+func (m CardDetailModel) updateCheckItemCmd(idCheckItem, state string) tea.Cmd {
+	return func() tea.Msg {
+		err := m.client.UpdateCheckItemState(m.card.ID, idCheckItem, state)
+		if err != nil {
+			return errMsg{fmt.Errorf("failed to update checklist item: %w", err)}
+		}
+		return m.fetchChecklists()()
+	}
+}
+
+func (m CardDetailModel) createChecklistCmd(name string) tea.Cmd {
+	return func() tea.Msg {
+		_, err := m.client.CreateChecklist(m.card.ID, name)
+		if err != nil {
+			return errMsg{fmt.Errorf("failed to create checklist: %w", err)}
+		}
+		return m.fetchChecklists()()
+	}
+}
+
+func (m CardDetailModel) deleteChecklistCmd(checklistID string) tea.Cmd {
+	return func() tea.Msg {
+		err := m.client.DeleteChecklist(checklistID)
+		if err != nil {
+			return errMsg{fmt.Errorf("failed to delete checklist: %w", err)}
+		}
+		return m.fetchChecklists()()
+	}
+}
+
+func (m CardDetailModel) createCheckItemCmd(checklistID, name string) tea.Cmd {
+	return func() tea.Msg {
+		_, err := m.client.CreateCheckItem(checklistID, name)
+		if err != nil {
+			return errMsg{fmt.Errorf("failed to add checklist item: %w", err)}
+		}
+		return m.fetchChecklists()()
+	}
+}
+
+func (m CardDetailModel) deleteCheckItemCmd(checklistID, checkItemID string) tea.Cmd {
+	return func() tea.Msg {
+		err := m.client.DeleteCheckItem(checklistID, checkItemID)
+		if err != nil {
+			return errMsg{fmt.Errorf("failed to delete checklist item: %w", err)}
+		}
+		return m.fetchChecklists()()
+	}
+}
 
 type boardLabelsLoadedMsg struct {
 	labels []trello.Label

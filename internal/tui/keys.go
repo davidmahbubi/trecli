@@ -103,12 +103,13 @@ type DetailKeyMap struct {
 	Move        key.Binding
 	Archive     key.Binding
 	Back        key.Binding
-	DownloadAtt key.Binding
-	OpenBrowser key.Binding
+	DownloadAtt     key.Binding
+	OpenBrowser     key.Binding
+	ManageChecklist key.Binding
 }
 
 func (k DetailKeyMap) ShortHelp() []key.Binding {
-	return []key.Binding{k.Edit, k.Move, k.Archive, k.DownloadAtt, k.OpenBrowser, k.Back}
+	return []key.Binding{k.Edit, k.Move, k.Archive, k.ManageChecklist, k.DownloadAtt, k.OpenBrowser, k.Back}
 }
 
 func (k DetailKeyMap) FullHelp() [][]key.Binding {
@@ -137,6 +138,66 @@ var detailKeys = DetailKeyMap{
 	OpenBrowser: key.NewBinding(
 		key.WithKeys("o"),
 		key.WithHelp("o", "open browser"),
+	),
+	ManageChecklist: key.NewBinding(
+		key.WithKeys("c"),
+		key.WithHelp("c", "checklists"),
+	),
+	Back: key.NewBinding(
+		key.WithKeys("q", "esc"),
+		key.WithHelp("q/esc", "back"),
+	),
+}
+
+type ChecklistKeyMap struct {
+	Up              key.Binding
+	Down            key.Binding
+	Toggle          key.Binding
+	NewChecklist    key.Binding
+	NewItem         key.Binding
+	DeleteItem      key.Binding
+	DeleteChecklist key.Binding
+	Back            key.Binding
+}
+
+func (k ChecklistKeyMap) ShortHelp() []key.Binding {
+	return []key.Binding{k.Up, k.Down, k.Toggle, k.NewItem, k.DeleteItem, k.NewChecklist, k.Back}
+}
+
+func (k ChecklistKeyMap) FullHelp() [][]key.Binding {
+	return [][]key.Binding{
+		{k.Up, k.Down, k.Toggle, k.NewItem, k.DeleteItem, k.NewChecklist, k.DeleteChecklist, k.Back},
+	}
+}
+
+var checklistKeys = ChecklistKeyMap{
+	Up: key.NewBinding(
+		key.WithKeys("up", "k"),
+		key.WithHelp("↑/k", "up"),
+	),
+	Down: key.NewBinding(
+		key.WithKeys("down", "j"),
+		key.WithHelp("↓/j", "down"),
+	),
+	Toggle: key.NewBinding(
+		key.WithKeys(" ", "enter"),
+		key.WithHelp("space/enter", "toggle"),
+	),
+	NewChecklist: key.NewBinding(
+		key.WithKeys("n"),
+		key.WithHelp("n", "new checklist"),
+	),
+	NewItem: key.NewBinding(
+		key.WithKeys("a"),
+		key.WithHelp("a", "add item"),
+	),
+	DeleteItem: key.NewBinding(
+		key.WithKeys("d"),
+		key.WithHelp("d", "delete item"),
+	),
+	DeleteChecklist: key.NewBinding(
+		key.WithKeys("x"),
+		key.WithHelp("x", "delete checklist"),
 	),
 	Back: key.NewBinding(
 		key.WithKeys("q", "esc"),

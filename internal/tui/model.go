@@ -25,7 +25,7 @@ type MainModel struct {
 	boards BoardsModel
 	kanban KanbanModel
 	detail CardDetailModel
-	
+
 	width  int
 	height int
 }
@@ -78,7 +78,7 @@ func (m MainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.state = stateBoards
 		return m, m.boards.Init()
 	case BoardSelectedMsg:
-		m.kanban = NewKanbanModel(m.client, msg.BoardID, msg.BoardURL, m.width, m.height)
+		m.kanban = NewKanbanModel(m.client, msg.BoardID, msg.BoardName, msg.BoardURL, m.width, m.height)
 		m.state = stateKanban
 		return m, m.kanban.Init()
 	case BackToBoardsMsg:
@@ -143,15 +143,15 @@ func (m MainModel) View() string {
 	}
 }
 
-// Messages
 type AuthSuccessMsg struct {
 	APIKey   string
 	APIToken string
 }
 
 type BoardSelectedMsg struct {
-	BoardID  string
-	BoardURL string
+	BoardID   string
+	BoardName string
+	BoardURL  string
 }
 
 type BackToBoardsMsg struct{}

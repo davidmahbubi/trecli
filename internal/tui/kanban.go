@@ -42,6 +42,7 @@ const (
 type KanbanModel struct {
 	client      *trello.Client
 	boardID     string
+	boardName   string
 	err         error
 	loaded      bool
 	loadingText string
@@ -108,7 +109,7 @@ func (i kanbanItem) Description() string {
 }
 func (i kanbanItem) FilterValue() string { return i.card.Name }
 
-func NewKanbanModel(client *trello.Client, boardID, boardURL string, w, h int) KanbanModel {
+func NewKanbanModel(client *trello.Client, boardID, boardName, boardURL string, w, h int) KanbanModel {
 	s := spinner.New()
 	s.Spinner = spinner.Dot
 	s.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("205"))
@@ -133,19 +134,20 @@ func NewKanbanModel(client *trello.Client, boardID, boardURL string, w, h int) K
 	ml.SetShowHelp(false)
 
 	return KanbanModel{
-		client:   client,
-		boardID:  boardID,
-		boardURL: boardURL,
-		cards:    make(map[string][]trello.Card),
-		width:    w,
-		height:   h,
-		spin:     s,
-		help:     help.New(),
-		ti:       ti,
-		ta:       ta,
-		tiDue:    tiDue,
-		tiURL:    tiURL,
-		moveList: ml,
+		client:    client,
+		boardID:   boardID,
+		boardName: boardName,
+		boardURL:  boardURL,
+		cards:     make(map[string][]trello.Card),
+		width:     w,
+		height:    h,
+		spin:      s,
+		help:      help.New(),
+		ti:        ti,
+		ta:        ta,
+		tiDue:     tiDue,
+		tiURL:     tiURL,
+		moveList:  ml,
 	}
 }
 
@@ -583,13 +585,12 @@ func (m KanbanModel) View() string {
 	if endIdx < len(m.models) {
 		rightArrow = " →"
 	}
-	indicatorText := fmt.Sprintf("%s Showing lists %d-%d of %d %s", leftArrow, m.windowStartIdx+1, endIdx, len(m.models), rightArrow)
+	indicatorText := fmt.Sprintf("%s %s • Showing lists %d-%d of %d %s", leftArrow, m.boardName, m.windowStartIdx+1, endIdx, len(m.models), rightArrow)
 	indicatorView := lipgloss.NewStyle().
 		Foreground(lipgloss.Color("62")).
 		PaddingBottom(1).
 		Render(indicatorText)
 	boardView = lipgloss.JoinVertical(lipgloss.Left, indicatorView, boardView)
-
 
 	if m.uiState == kanbanStateAddCard {
 		style := func(idx int) lipgloss.Style {

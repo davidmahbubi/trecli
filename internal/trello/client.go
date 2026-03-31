@@ -57,6 +57,18 @@ type Attachment struct {
 	Bytes    int    `json:"bytes"`
 }
 
+type Checklist struct {
+	ID         string      `json:"id"`
+	Name       string      `json:"name"`
+	CheckItems []CheckItem `json:"checkItems"`
+}
+
+type CheckItem struct {
+	ID    string `json:"id"`
+	Name  string `json:"name"`
+	State string `json:"state"`
+}
+
 type CreateCardOptions struct {
 	ListID    string
 	Name      string
@@ -261,7 +273,7 @@ func (c *Client) UpdateCard(opts UpdateCardOptions) (*Card, error) {
 	if opts.Closed != "" {
 		query["closed"] = opts.Closed
 	}
-	// Always send idLabels so we can also clear all labels
+
 	query["idLabels"] = strings.Join(opts.LabelIDs, ",")
 
 	path := fmt.Sprintf("/cards/%s", opts.CardID)
@@ -305,4 +317,70 @@ func (c *Client) GetBoardLabels(boardID string) ([]Label, error) {
 		return nil, err
 	}
 	return labels, nil
+}
+
+func (c *Client) GetChecklists(cardID string) ([]Checklist, error) {
+	path := fmt.Sprintf("/cards/%s/checklists", cardID)
+	data, err := c.do("GET", path, nil, nil)
+	if err != nil {
+		return nil, err
+	}
+	var lists []Checklist
+	if err := json.Unmarshal(data, &lists); err != nil {
+		return nil, err
+	}
+	return lists, nil
+}
+
+func (c *Client) UpdateCheckItemState(cardID string, idCheckItem string, state string) error {
+	path := fmt.Sprintf("/cards/%s/checkItem/%s", cardID, idCheckItem)
+	query := map[string]string{
+		"state": state,
+	}
+	_, err := c.do("PUT", path, query, nil)
+	return err
+}
+
+func (c *Client) CreateChecklist(cardID string, name string) (*Checklist, error) {
+	path := fmt.Sprintf("/cards/%s/checklists", cardID)
+	query := map[string]string{
+		"name": name,
+	}
+	data, err := c.do("POST", path, query, nil)
+	if err != nil {
+		return nil, err
+	}
+	var chl Checklist
+	if err := json.Unmarshal(data, &chl); err != nil {
+		return nil, err
+	}
+	return &chl, nil
+}
+
+func (c *Client) DeleteChecklist(checklistID string) error {
+	path := fmt.Sprintf("/checklists/%s", checklistID)
+	_, err := c.do("DELETE", path, nil, nil)
+	return err
+}
+
+func (c *Client) CreateCheckItem(checklistID string, name string) (*CheckItem, error) {
+	path := fmt.Sprintf("/checklists/%s/checkItems", checklistID)
+	query := map[string]string{
+		"name": name,
+	}
+	data, err := c.do("POST", path, query, nil)
+	if err != nil {
+		return nil, err
+	}
+	var item CheckItem
+	if err := json.Unmarshal(data, &item); err != nil {
+		return nil, err
+	}
+	return &item, nil
+}
+
+func (c *Client) DeleteCheckItem(checklistID string, checkItemID string) error {
+	path := fmt.Sprintf("/checklists/%s/checkItems/%s", checklistID, checkItemID)
+	_, err := c.do("DELETE", path, nil, nil)
+	return err
 }
