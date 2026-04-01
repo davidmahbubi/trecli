@@ -17,7 +17,7 @@
 
 ## Demo
 
-<script src="https://asciinema.org/a/092Yjb2GiEsfFmyy.js" id="asciicast-092Yjb2GiEsfFmyy" async="true"></script>
+[![asciicast](https://asciinema.org/a/092Yjb2GiEsfFmyy.svg)](https://asciinema.org/a/092Yjb2GiEsfFmyy)
 
 ## Features
 
