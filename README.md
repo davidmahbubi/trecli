@@ -15,6 +15,10 @@
 
 ---
 
+## Demo
+
+[![asciicast](https://asciinema.org/a/092Yjb2GiEsfFmyy.svg)](https://asciinema.org/a/092Yjb2GiEsfFmyy)
+
 ## Features
 
 - **Instant Board Access**: Load your workspaces and boards interactively.
