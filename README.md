@@ -99,7 +99,7 @@ Trecli is meant to be highly efficient. The bottom footer dynamically changes to
 | `↑ / ↓`          | Navigate Label Picker  |
 | `Space`          | Toggle selected Label  |
 | `Ctrl+S`         | Save Changes           |
-	| `Esc`            | Cancel edits           |
+| `Esc`            | Cancel edits           |
 
 ---
 
