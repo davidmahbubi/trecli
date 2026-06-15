@@ -178,6 +178,19 @@ func (c *Client) GetCardsInList(listID string) ([]Card, error) {
 	return cards, nil
 }
 
+func (c *Client) GetCard(cardID string) (*Card, error) {
+	path := fmt.Sprintf("/cards/%s", cardID)
+	data, err := c.do("GET", path, map[string]string{"fields": "name,desc,idList,pos,due,urlSource,shortUrl,labels"}, nil)
+	if err != nil {
+		return nil, err
+	}
+	var card Card
+	if err := json.Unmarshal(data, &card); err != nil {
+		return nil, err
+	}
+	return &card, nil
+}
+
 func (c *Client) GetAttachments(cardID string) ([]Attachment, error) {
 	path := fmt.Sprintf("/cards/%s/attachments", cardID)
 	data, err := c.do("GET", path, nil, nil)
