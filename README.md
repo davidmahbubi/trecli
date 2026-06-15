@@ -99,7 +99,32 @@ Trecli is meant to be highly efficient. The bottom footer dynamically changes to
 | `↑ / ↓`          | Navigate Label Picker  |
 | `Space`          | Toggle selected Label  |
 | `Ctrl+S`         | Save Changes           |
-| `Esc`            | Cancel edits           |
+	| `Esc`            | Cancel edits           |
+
+---
+
+## Direct Execution CLI Mode
+
+Trecli also supports executing commands directly without opening the interactive TUI. This is useful for fetching data quickly or piping it to other tools (like `jq`). If you pipe the output, Trecli will automatically format the output as JSON.
+
+| Command                                                    | Description                                               |
+|------------------------------------------------------------|-----------------------------------------------------------|
+| `trecli boards`                                            | List all your Trello boards                               |
+| `trecli lists --board "Board Name"`                        | List all lists (and their cards) in a specific board      |
+| `trecli cards --board "Board Name" --list "List Name"`     | List all cards in a specific list                         |
+| `trecli card --id "Card ID"`                               | View details of a specific card by its ID                 |
+| `trecli help`                                              | Show the CLI help menu                                    |
+
+**Global Flags:**
+- `--json`: Force output to JSON format (automatically enabled if output is piped)
+
+**Examples:**
+```bash
+./trecli boards
+./trecli lists --board "Classy Laundry"
+./trecli cards --board "Classy Laundry" --list "To Do" --json
+./trecli boards | jq '.[].name'
+```
 
 ---
 
