@@ -38,15 +38,16 @@ type Label struct {
 }
 
 type Card struct {
-	ID        string  `json:"id"`
-	Name      string  `json:"name"`
-	Desc      string  `json:"desc"`
-	IDList    string  `json:"idList"`
-	Pos       float64 `json:"pos"`
-	Due       string  `json:"due"`
-	URLSource string  `json:"urlSource"`
-	ShortUrl  string  `json:"shortUrl"`
-	Labels    []Label `json:"labels"`
+	ID        string   `json:"id"`
+	Name      string   `json:"name"`
+	Desc      string   `json:"desc"`
+	IDList    string   `json:"idList"`
+	Pos       float64  `json:"pos"`
+	Due       string   `json:"due"`
+	URLSource string   `json:"urlSource"`
+	ShortUrl  string   `json:"shortUrl"`
+	Labels    []Label  `json:"labels"`
+	IDMembers []string `json:"idMembers"`
 }
 
 type Attachment struct {
@@ -67,6 +68,28 @@ type CheckItem struct {
 	ID    string `json:"id"`
 	Name  string `json:"name"`
 	State string `json:"state"`
+}
+
+type Action struct {
+	ID            string        `json:"id"`
+	Date          string        `json:"date"`
+	Data          ActionData    `json:"data"`
+	MemberCreator MemberCreator `json:"memberCreator"`
+}
+
+type ActionData struct {
+	Text string `json:"text"`
+}
+
+type MemberCreator struct {
+	FullName string `json:"fullName"`
+	Username string `json:"username"`
+}
+
+type Member struct {
+	ID       string `json:"id"`
+	FullName string `json:"fullName"`
+	Username string `json:"username"`
 }
 
 type CreateCardOptions struct {
@@ -167,7 +190,7 @@ func (c *Client) GetLists(boardID string) ([]List, error) {
 
 func (c *Client) GetCardsInList(listID string) ([]Card, error) {
 	path := fmt.Sprintf("/lists/%s/cards", listID)
-	data, err := c.do("GET", path, map[string]string{"fields": "name,desc,idList,pos,due,urlSource,shortUrl,labels"}, nil)
+	data, err := c.do("GET", path, map[string]string{"fields": "name,desc,idList,pos,due,urlSource,shortUrl,labels,idMembers"}, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -180,7 +203,7 @@ func (c *Client) GetCardsInList(listID string) ([]Card, error) {
 
 func (c *Client) GetCard(cardID string) (*Card, error) {
 	path := fmt.Sprintf("/cards/%s", cardID)
-	data, err := c.do("GET", path, map[string]string{"fields": "name,desc,idList,pos,due,urlSource,shortUrl,labels"}, nil)
+	data, err := c.do("GET", path, map[string]string{"fields": "name,desc,idList,pos,due,urlSource,shortUrl,labels,idMembers"}, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -396,4 +419,82 @@ func (c *Client) DeleteCheckItem(checklistID string, checkItemID string) error {
 	path := fmt.Sprintf("/checklists/%s/checkItems/%s", checklistID, checkItemID)
 	_, err := c.do("DELETE", path, nil, nil)
 	return err
+}
+
+func (c *Client) GetComments(cardID string) ([]Action, error) {
+	path := fmt.Sprintf("/cards/%s/actions", cardID)
+	data, err := c.do("GET", path, map[string]string{"filter": "commentCard"}, nil)
+	if err != nil {
+		return nil, err
+	}
+	var actions []Action
+	if err := json.Unmarshal(data, &actions); err != nil {
+		return nil, err
+	}
+	return actions, nil
+}
+
+func (c *Client) AddComment(cardID, text string) error {
+	path := fmt.Sprintf("/cards/%s/actions/comments", cardID)
+	query := map[string]string{"text": text}
+	_, err := c.do("POST", path, query, nil)
+	return err
+}
+
+func (c *Client) GetBoardMembers(boardID string) ([]Member, error) {
+	path := fmt.Sprintf("/boards/%s/members", boardID)
+	data, err := c.do("GET", path, nil, nil)
+	if err != nil {
+		return nil, err
+	}
+	var members []Member
+	if err := json.Unmarshal(data, &members); err != nil {
+		return nil, err
+	}
+	return members, nil
+}
+
+func (c *Client) AddMemberToCard(cardID, memberID string) error {
+	path := fmt.Sprintf("/cards/%s/idMembers", cardID)
+	query := map[string]string{"value": memberID}
+	_, err := c.do("POST", path, query, nil)
+	return err
+}
+
+func (c *Client) RemoveMemberFromCard(cardID, memberID string) error {
+	path := fmt.Sprintf("/cards/%s/idMembers/%s", cardID, memberID)
+	_, err := c.do("DELETE", path, nil, nil)
+	return err
+}
+
+func (c *Client) CreateList(boardID, name string) (*List, error) {
+	query := map[string]string{
+		"name":    name,
+		"idBoard": boardID,
+	}
+	data, err := c.do("POST", "/lists", query, nil)
+	if err != nil {
+		return nil, err
+	}
+	var list List
+	if err := json.Unmarshal(data, &list); err != nil {
+		return nil, err
+	}
+	return &list, nil
+}
+
+func (c *Client) CreateBoard(name, desc string) (*Board, error) {
+	query := map[string]string{
+		"name": name,
+		"desc": desc,
+	}
+	data, err := c.do("POST", "/boards", query, nil)
+	if err != nil {
+		return nil, err
+	}
+	var board Board
+	if err := json.Unmarshal(data, &board); err != nil {
+		return nil, err
+	}
+	return &board, nil
 }

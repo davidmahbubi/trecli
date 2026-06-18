@@ -71,6 +71,12 @@ To reset or logout, simply delete the SQLite DB file.
 
 Trecli is meant to be highly efficient. The bottom footer dynamically changes to assist you. 
 
+### Board Selection View
+| Key Binding      | Action                 |
+|------------------|------------------------|
+| `n / c`          | Create a New Board     |
+| `Enter`          | Select Board           |
+
 ### Kanban View
 | Key Binding      | Action                 |
 |------------------|------------------------|
@@ -79,6 +85,9 @@ Trecli is meant to be highly efficient. The bottom footer dynamically changes to
 | `↑ / k`          | Move up in List        |
 | `↓ / j`          | Move down in List      |
 | `Enter`          | Open Card Details      |
+| `n / c`          | Create New Card        |
+| `L`              | Create New List        |
+| `s`              | Toggle Sorting (Name, Due Date) |
 | `q / Esc`        | Return to Boards       |
 | `/`              | Filter/Search Cards    |
 
@@ -87,6 +96,9 @@ Trecli is meant to be highly efficient. The bottom footer dynamically changes to
 |------------------|------------------------|
 | `e`              | Edit Card              |
 | `m`              | Move Card to a New List|
+| `C`              | View/Manage Checklists |
+| `c`              | View/Add Comments      |
+| `p`              | View/Manage Members (Assign) |
 | `a`              | Archive Card           |
 | `d`              | Download Attachments   |
 | `o`              | Open in Browser        |

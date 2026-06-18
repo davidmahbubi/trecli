@@ -9,6 +9,8 @@ type KanbanKeyMap struct {
 	Down    key.Binding
 	Enter   key.Binding
 	NewCard key.Binding
+	NewList key.Binding
+	Sort    key.Binding
 	Move             key.Binding
 	OpenBrowser      key.Binding
 	OpenBoardBrowser key.Binding
@@ -16,13 +18,13 @@ type KanbanKeyMap struct {
 }
 
 func (k KanbanKeyMap) ShortHelp() []key.Binding {
-	return []key.Binding{k.Left, k.Right, k.NewCard, k.Move, k.OpenBrowser, k.OpenBoardBrowser, k.Quit}
+	return []key.Binding{k.Left, k.Right, k.NewCard, k.NewList, k.Sort, k.Move, k.OpenBrowser, k.OpenBoardBrowser, k.Quit}
 }
 
 func (k KanbanKeyMap) FullHelp() [][]key.Binding {
 	return [][]key.Binding{
 		{k.Left, k.Right, k.Up, k.Down},
-		{k.Enter, k.NewCard, k.Move, k.OpenBrowser, k.OpenBoardBrowser, k.Quit},
+		{k.Enter, k.NewCard, k.NewList, k.Sort, k.Move, k.OpenBrowser, k.OpenBoardBrowser, k.Quit},
 	}
 }
 
@@ -50,6 +52,14 @@ var kanbanKeys = KanbanKeyMap{
 	NewCard: key.NewBinding(
 		key.WithKeys("n", "c"),
 		key.WithHelp("n/c", "new card"),
+	),
+	NewList: key.NewBinding(
+		key.WithKeys("L"),
+		key.WithHelp("L", "new list"),
+	),
+	Sort: key.NewBinding(
+		key.WithKeys("s"),
+		key.WithHelp("s", "sort"),
 	),
 	Move: key.NewBinding(
 		key.WithKeys("m"),
@@ -106,15 +116,17 @@ type DetailKeyMap struct {
 	DownloadAtt     key.Binding
 	OpenBrowser     key.Binding
 	ManageChecklist key.Binding
+	ManageComments  key.Binding
+	ManageMembers   key.Binding
 }
 
 func (k DetailKeyMap) ShortHelp() []key.Binding {
-	return []key.Binding{k.Edit, k.Move, k.Archive, k.ManageChecklist, k.DownloadAtt, k.OpenBrowser, k.Back}
+	return []key.Binding{k.Edit, k.Move, k.Archive, k.ManageChecklist, k.ManageComments, k.ManageMembers, k.DownloadAtt, k.OpenBrowser, k.Back}
 }
 
 func (k DetailKeyMap) FullHelp() [][]key.Binding {
 	return [][]key.Binding{
-		{k.Edit, k.Move, k.Archive, k.DownloadAtt, k.OpenBrowser, k.Back},
+		{k.Edit, k.Move, k.Archive, k.ManageChecklist, k.ManageComments, k.ManageMembers, k.DownloadAtt, k.OpenBrowser, k.Back},
 	}
 }
 
@@ -140,8 +152,16 @@ var detailKeys = DetailKeyMap{
 		key.WithHelp("o", "open browser"),
 	),
 	ManageChecklist: key.NewBinding(
+		key.WithKeys("C"),
+		key.WithHelp("C", "checklists"),
+	),
+	ManageComments: key.NewBinding(
 		key.WithKeys("c"),
-		key.WithHelp("c", "checklists"),
+		key.WithHelp("c", "comments"),
+	),
+	ManageMembers: key.NewBinding(
+		key.WithKeys("p"),
+		key.WithHelp("p", "members"),
 	),
 	Back: key.NewBinding(
 		key.WithKeys("q", "esc"),

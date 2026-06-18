@@ -29,6 +29,9 @@ const (
 	detailStateAddChecklist
 	detailStateAddCheckItem
 	detailStateChecklistLoading
+	detailStateComments
+	detailStateAddComment
+	detailStateMembers
 )
 
 type flatCheckItem struct {
@@ -77,6 +80,14 @@ type CardDetailModel struct {
 	tiChecklist textinput.Model
 	spin        spinner.Model
 	loadingText string
+
+	commentsLoaded bool
+	comments       []trello.Action
+	taComment      textarea.Model
+
+	membersLoaded  bool
+	boardMembers   []trello.Member
+	membersList    list.Model
 }
 
 type moveListItem struct {
@@ -86,6 +97,21 @@ type moveListItem struct {
 func (i moveListItem) Title() string       { return i.list.Name }
 func (i moveListItem) Description() string { return "" }
 func (i moveListItem) FilterValue() string { return i.list.Name }
+
+type memberListItem struct {
+	member   trello.Member
+	assigned bool
+}
+
+func (i memberListItem) Title() string {
+	prefix := "[ ] "
+	if i.assigned {
+		prefix = "[x] "
+	}
+	return prefix + i.member.FullName
+}
+func (i memberListItem) Description() string { return "@" + i.member.Username }
+func (i memberListItem) FilterValue() string { return i.member.FullName + " " + i.member.Username }
 
 func NewCardDetailModel(client *trello.Client, boardID string, card trello.Card, currList trello.List, allLists []trello.List, w, h int) CardDetailModel {
 	ml := list.New([]list.Item{}, list.NewDefaultDelegate(), w, h-6)
@@ -156,6 +182,16 @@ func NewCardDetailModel(client *trello.Client, boardID string, card trello.Card,
 		}
 	}
 
+	memList := list.New([]list.Item{}, list.NewDefaultDelegate(), w, h-6)
+	memList.Title = "Select Member to Toggle Assignment"
+	memList.SetShowHelp(false)
+
+	taC := textarea.New()
+	taC.Placeholder = "Write a comment..."
+	taC.SetWidth(inputWidth)
+	taC.SetHeight(5)
+	taC.Focus()
+
 	return CardDetailModel{
 		client:           client,
 		boardID:          boardID,
@@ -166,9 +202,11 @@ func NewCardDetailModel(client *trello.Client, boardID string, card trello.Card,
 		height:           h,
 		state:            detailStateView,
 		moveList:         ml,
+		membersList:      memList,
 		help:             help.New(),
 		ti:               ti,
 		ta:               ta,
+		taComment:        taC,
 		tiDue:            tiDue,
 		tiURL:            tiURL,
 		formDestIdx:      destIdx,
@@ -212,6 +250,42 @@ func (m CardDetailModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case boardLabelsLoadedMsg:
 		m.boardLabels = msg.labels
+		return m, nil
+
+	case commentsLoadedMsg:
+		m.comments = msg.comments
+		m.commentsLoaded = true
+		if m.state == detailStateChecklistLoading {
+			m.state = m.prevState
+		}
+		m.loadingText = ""
+		return m, nil
+
+	case membersLoadedMsg:
+		m.boardMembers = msg.members
+		m.card = *msg.card
+		m.membersLoaded = true
+		
+		var items []list.Item
+		assignedMap := make(map[string]bool)
+		// Assuming m.card.IDMembers exists. Wait, I need to check if IDMembers exists on Card
+		// Let me check trello API. It should be IDMembers []string.
+		// Let me add IDMembers to Card in client.go first.
+		for _, id := range m.card.IDMembers {
+			assignedMap[id] = true
+		}
+		for _, mem := range m.boardMembers {
+			items = append(items, memberListItem{
+				member:   mem,
+				assigned: assignedMap[mem.ID],
+			})
+		}
+		m.membersList.SetItems(items)
+
+		if m.state == detailStateChecklistLoading {
+			m.state = m.prevState
+		}
+		m.loadingText = ""
 		return m, nil
 
 	case checklistsLoadedMsg:
@@ -301,6 +375,43 @@ func (m CardDetailModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			var cmd tea.Cmd
 			m.tiChecklist, cmd = m.tiChecklist.Update(msg)
+			return m, cmd
+		}
+
+		if m.state == detailStateAddComment {
+			switch msg.String() {
+			case "esc":
+				m.state = detailStateComments
+				return m, nil
+			case "ctrl+s":
+				text := m.taComment.Value()
+				if text != "" {
+					m.loadingText = "Adding comment..."
+					m.prevState = detailStateComments
+					m.state = detailStateChecklistLoading
+					return m, tea.Batch(m.addCommentCmd(text), m.spin.Tick)
+				}
+			}
+			var cmd tea.Cmd
+			m.taComment, cmd = m.taComment.Update(msg)
+			return m, cmd
+		}
+
+		if m.state == detailStateMembers {
+			switch msg.String() {
+			case "esc", "q":
+				m.state = detailStateView
+				return m, nil
+			case "enter", " ":
+				if i, ok := m.membersList.SelectedItem().(memberListItem); ok {
+					m.loadingText = "Updating member..."
+					m.prevState = detailStateMembers
+					m.state = detailStateChecklistLoading
+					return m, tea.Batch(m.toggleMemberCmd(i.member.ID, !i.assigned), m.spin.Tick)
+				}
+			}
+			var cmd tea.Cmd
+			m.membersList, cmd = m.membersList.Update(msg)
 			return m, cmd
 		}
 
@@ -432,10 +543,13 @@ func (m CardDetailModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		switch msg.String() {
 		case "esc", "q":
-			if m.state == detailStateMove || m.state == detailStateChecklist || m.state == detailStateAddChecklist || m.state == detailStateAddCheckItem {
+			if m.state == detailStateMove || m.state == detailStateChecklist || m.state == detailStateAddChecklist || m.state == detailStateAddCheckItem || m.state == detailStateMembers || m.state == detailStateComments || m.state == detailStateAddComment {
 				m.state = detailStateView
 				if m.state == detailStateAddChecklist || m.state == detailStateAddCheckItem {
 					m.state = detailStateChecklist
+				}
+				if m.state == detailStateAddComment {
+					m.state = detailStateComments
 				}
 				return m, nil
 			}
@@ -449,11 +563,29 @@ func (m CardDetailModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return BackToKanbanMsg{}
 			}
 
-		case "c":
+		case "C":
 			if m.state == detailStateView && len(m.checklists) > 0 {
 				m.state = detailStateChecklist
 				if m.checklistCursor >= len(m.flatCheckItems) {
 					m.checklistCursor = 0
+				}
+				return m, nil
+			}
+			
+		case "c":
+			if m.state == detailStateView {
+				m.state = detailStateComments
+				if !m.commentsLoaded {
+					return m, m.fetchCommentsCmd()
+				}
+				return m, nil
+			}
+
+		case "p":
+			if m.state == detailStateView {
+				m.state = detailStateMembers
+				if !m.membersLoaded {
+					return m, m.fetchMembersCmd()
 				}
 				return m, nil
 			}
@@ -464,6 +596,12 @@ func (m CardDetailModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.tiChecklist.Placeholder = "Checklist Name"
 				m.tiChecklist.Focus()
 				m.tiChecklist.SetValue("")
+				return m, nil
+			}
+			if m.state == detailStateComments {
+				m.state = detailStateAddComment
+				m.taComment.SetValue("")
+				m.taComment.Focus()
 				return m, nil
 			}
 
@@ -668,6 +806,57 @@ func (m CardDetailModel) View() string {
 		return lipgloss.JoinVertical(lipgloss.Left, m.moveList.View(), helpView)
 	}
 
+	if m.state == detailStateMembers {
+		return lipgloss.JoinVertical(lipgloss.Left, m.membersList.View(), "\n\n(Enter/Space to toggle • Esc to return)")
+	}
+
+	if m.state == detailStateComments {
+		var b strings.Builder
+		b.WriteString(lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("62")).Render("Comments for: " + m.card.Name))
+		b.WriteString("\n\n")
+
+		if len(m.comments) == 0 {
+			b.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("240")).Render("No comments yet."))
+		} else {
+			for _, c := range m.comments {
+				b.WriteString(lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("205")).Render(c.MemberCreator.FullName))
+				b.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("240")).Render(" • " + c.Date[:10]))
+				b.WriteString("\n")
+				
+				// Optional: glamour render comment text, or just plain string
+				b.WriteString(c.Data.Text)
+				b.WriteString("\n\n")
+			}
+		}
+
+		b.WriteString("\n\n(Press 'n' to add a comment • Esc to return)")
+		
+		return lipgloss.Place(m.width, m.height, lipgloss.Left, lipgloss.Top,
+			lipgloss.NewStyle().Padding(1, 2).Render(b.String()),
+		)
+	}
+
+	if m.state == detailStateAddComment {
+		formStr := lipgloss.JoinVertical(lipgloss.Left,
+			lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("62")).Render("Add Comment"),
+			"",
+			m.taComment.View(),
+			"",
+			lipgloss.NewStyle().Foreground(lipgloss.Color("240")).Render("(Ctrl+S to save • Esc to cancel)"),
+		)
+
+		formBox := lipgloss.NewStyle().
+			Border(lipgloss.DoubleBorder()).
+			Padding(1, 2).
+			BorderForeground(lipgloss.Color("62")).
+			Render(formStr)
+
+		return lipgloss.Place(m.width, m.height,
+			lipgloss.Center, lipgloss.Center,
+			formBox,
+		)
+	}
+
 	h1 := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("62")).MarginBottom(1)
 	h2 := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("205"))
 	box := lipgloss.NewStyle().
@@ -849,6 +1038,70 @@ func (m CardDetailModel) fetchChecklists() tea.Cmd {
 			return errMsg{fmt.Errorf("failed to load checklists: %w", err)}
 		}
 		return checklistsLoadedMsg{checklists: lists}
+	}
+}
+
+
+type commentsLoadedMsg struct {
+	comments []trello.Action
+}
+
+func (m CardDetailModel) fetchCommentsCmd() tea.Cmd {
+	return func() tea.Msg {
+		comments, err := m.client.GetComments(m.card.ID)
+		if err != nil {
+			return errMsg{err}
+		}
+		return commentsLoadedMsg{comments: comments}
+	}
+}
+
+func (m CardDetailModel) addCommentCmd(text string) tea.Cmd {
+	return func() tea.Msg {
+		err := m.client.AddComment(m.card.ID, text)
+		if err != nil {
+			return errMsg{err}
+		}
+		comments, _ := m.client.GetComments(m.card.ID)
+		return commentsLoadedMsg{comments: comments}
+	}
+}
+
+type membersLoadedMsg struct {
+	members []trello.Member
+	card    *trello.Card
+}
+
+func (m CardDetailModel) fetchMembersCmd() tea.Cmd {
+	return func() tea.Msg {
+		members, err := m.client.GetBoardMembers(m.boardID)
+		if err != nil {
+			return errMsg{err}
+		}
+		card, err := m.client.GetCard(m.card.ID)
+		if err != nil {
+			return errMsg{err}
+		}
+		return membersLoadedMsg{members: members, card: card}
+	}
+}
+
+func (m CardDetailModel) toggleMemberCmd(memberID string, add bool) tea.Cmd {
+	return func() tea.Msg {
+		var err error
+		if add {
+			err = m.client.AddMemberToCard(m.card.ID, memberID)
+		} else {
+			err = m.client.RemoveMemberFromCard(m.card.ID, memberID)
+		}
+		if err != nil {
+			return errMsg{err}
+		}
+		
+		// Reload members
+		members, _ := m.client.GetBoardMembers(m.boardID)
+		card, _ := m.client.GetCard(m.card.ID)
+		return membersLoadedMsg{members: members, card: card}
 	}
 }
 

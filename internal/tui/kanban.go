@@ -37,6 +37,7 @@ const (
 	kanbanStateList kanbanUIState = iota
 	kanbanStateAddCard
 	kanbanStateMoveCard
+	kanbanStateAddList
 )
 
 type KanbanModel struct {
@@ -61,6 +62,7 @@ type KanbanModel struct {
 	help help.Model
 
 	uiState      kanbanUIState
+	sortMode     int // 0=default, 1=name, 2=due date
 	ti           textinput.Model
 	ta           textarea.Model
 	formIdx      int
@@ -68,6 +70,7 @@ type KanbanModel struct {
 	formPosIdx   int
 	tiDue        textinput.Model
 	tiURL        textinput.Model
+	tiList       textinput.Model
 	moveList     list.Model
 	selectedCard trello.Card
 	boardURL     string
@@ -133,6 +136,10 @@ func NewKanbanModel(client *trello.Client, boardID, boardName, boardURL string, 
 	ml.Title = "Select List to Move Card To"
 	ml.SetShowHelp(false)
 
+	tiL := textinput.New()
+	tiL.Placeholder = "List Name"
+	tiL.CharLimit = 100
+
 	return KanbanModel{
 		client:    client,
 		boardID:   boardID,
@@ -147,6 +154,7 @@ func NewKanbanModel(client *trello.Client, boardID, boardName, boardURL string, 
 		ta:        ta,
 		tiDue:     tiDue,
 		tiURL:     tiURL,
+		tiList:    tiL,
 		moveList:  ml,
 	}
 }
@@ -182,6 +190,74 @@ func (m KanbanModel) createCard(opts trello.CreateCardOptions) tea.Cmd {
 		}
 		return m.loadKanban()
 	}
+}
+
+type listCreatedMsg struct {
+	list trello.List
+}
+
+func (m KanbanModel) createListReq(name string) tea.Cmd {
+	return func() tea.Msg {
+		list, err := m.client.CreateList(m.boardID, name)
+		if err != nil {
+			return errMsg{err}
+		}
+		return listCreatedMsg{list: *list}
+	}
+}
+
+func (m *KanbanModel) buildModels() {
+	m.models = make([]list.Model, len(m.tLists))
+	for i, l := range m.tLists {
+		delegate := list.NewDefaultDelegate()
+		delegate.ShowDescription = true
+
+		lm := list.New([]list.Item{}, delegate, 0, 0)
+		title := l.Name
+		if m.sortMode == 1 {
+			title += " (Sort: Name)"
+		} else if m.sortMode == 2 {
+			title += " (Sort: Due Date)"
+		}
+		lm.Title = title
+		lm.SetShowHelp(false)
+
+		var items []list.Item
+		cards := m.cards[l.ID]
+		
+		// Sort the cards
+		if m.sortMode == 1 {
+			// Sort by name
+			for i := 0; i < len(cards)-1; i++ {
+				for j := i + 1; j < len(cards); j++ {
+					if cards[i].Name > cards[j].Name {
+						cards[i], cards[j] = cards[j], cards[i]
+					}
+				}
+			}
+		} else if m.sortMode == 2 {
+			// Sort by due date (empty due dates go last)
+			for i := 0; i < len(cards)-1; i++ {
+				for j := i + 1; j < len(cards); j++ {
+					di := cards[i].Due
+					dj := cards[j].Due
+					if di == "" { di = "zzzzz" } // push to bottom
+					if dj == "" { dj = "zzzzz" }
+					if di > dj {
+						cards[i], cards[j] = cards[j], cards[i]
+					}
+				}
+			}
+		}
+
+		for _, c := range cards {
+			items = append(items, kanbanItem{card: c, tList: l})
+		}
+		lm.SetItems(items)
+		m.models[i] = lm
+	}
+	m.resizeModels()
+	m.adjustWindow()
 }
 
 func (m KanbanModel) updateCardReq(opts trello.UpdateCardOptions) tea.Cmd {
@@ -242,30 +318,16 @@ func (m KanbanModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.adjustWindow()
 		return m, nil
 
+	case listCreatedMsg:
+		m.loadingText = ""
+		return m, m.loadKanban
+
 	case kanbanLoadedMsg:
 		m.loaded = true
 		m.loadingText = ""
 		m.tLists = msg.lists
 		m.cards = msg.cards
-
-		m.models = make([]list.Model, len(m.tLists))
-		for i, l := range m.tLists {
-			delegate := list.NewDefaultDelegate()
-			delegate.ShowDescription = true
-
-			lm := list.New([]list.Item{}, delegate, 0, 0)
-			lm.Title = l.Name
-			lm.SetShowHelp(false)
-
-			var items []list.Item
-			for _, c := range m.cards[l.ID] {
-				items = append(items, kanbanItem{card: c, tList: l})
-			}
-			lm.SetItems(items)
-			m.models[i] = lm
-		}
-		m.resizeModels()
-		m.adjustWindow()
+		m.buildModels()
 		return m, nil
 
 	case errMsg:
@@ -385,6 +447,25 @@ func (m KanbanModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, cmd
 		}
 
+		if m.uiState == kanbanStateAddList {
+			switch msg.String() {
+			case "esc":
+				m.uiState = kanbanStateList
+				return m, nil
+			case "enter":
+				name := m.tiList.Value()
+				if name != "" {
+					m.uiState = kanbanStateList
+					m.loadingText = "Creating list..."
+					m.tiList.SetValue("")
+					return m, tea.Batch(m.createListReq(name), m.spin.Tick)
+				}
+			}
+			var cmd tea.Cmd
+			m.tiList, cmd = m.tiList.Update(msg)
+			return m, cmd
+		}
+
 		if m.uiState == kanbanStateMoveCard {
 			if m.moveList.FilterState() == list.Filtering {
 				var cmd tea.Cmd
@@ -431,6 +512,10 @@ func (m KanbanModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						m.adjustWindow()
 					}
 					return m, nil
+				case "s":
+					m.sortMode = (m.sortMode + 1) % 3
+					m.buildModels()
+					return m, nil
 				case "n", "c":
 					m.uiState = kanbanStateAddCard
 					m.formIdx = 0
@@ -440,6 +525,10 @@ func (m KanbanModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.ta.Blur()
 					m.tiDue.Blur()
 					m.tiURL.Blur()
+					return m, nil
+				case "L":
+					m.uiState = kanbanStateAddList
+					m.tiList.Focus()
 					return m, nil
 				case "m":
 					if i, ok := m.models[m.focusedListIdx].SelectedItem().(kanbanItem); ok {
@@ -627,6 +716,25 @@ func (m KanbanModel) View() string {
 			m.tiURL.View(),
 			"",
 			"(Ctrl+S to save • Tab to cycle • Esc to cancel)",
+		)
+
+		formBox := lipgloss.NewStyle().
+			Border(lipgloss.DoubleBorder()).
+			Padding(1, 2).
+			BorderForeground(lipgloss.Color("62")).
+			Render(formStr)
+
+		boardView = lipgloss.Place(m.width, m.height-3,
+			lipgloss.Center, lipgloss.Center,
+			formBox,
+		)
+	} else if m.uiState == kanbanStateAddList {
+		formStr := lipgloss.JoinVertical(lipgloss.Left,
+			"Add New List",
+			"",
+			m.tiList.View(),
+			"",
+			"(Enter to save • Esc to cancel)",
 		)
 
 		formBox := lipgloss.NewStyle().
